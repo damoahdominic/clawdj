@@ -126,7 +126,7 @@ def search(query: str = typer.Argument(..., help="Search query"), limit: int = t
     table.add_column("Artist", style="green")
     table.add_column("Duration", style="yellow")
     for i, t in enumerate(results, 1):
-        dur = f"{t['duration']//60}:{t['duration']%60:02d}" if t.get("duration") else "?"
+        dur = f"{int(t['duration'])//60}:{int(t['duration'])%60:02d}" if t.get("duration") else "?"
         table.add_row(str(i), t["title"], t["uploader"], dur)
     console.print(table)
 
