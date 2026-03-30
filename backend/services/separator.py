@@ -1,5 +1,6 @@
 """Stem separation using Demucs."""
 import subprocess
+import sys
 import os
 from pathlib import Path
 
@@ -11,16 +12,24 @@ def separate_stems(audio_path: str, output_dir: str, two_stems: bool = True) -> 
     """
     os.makedirs(output_dir, exist_ok=True)
 
+    # Use the same python interpreter as the current process (venv-aware)
+    python = sys.executable
+
     cmd = [
-        "python3", "-m", "demucs",
+        python, "-m", "demucs",
         "--out", output_dir,
         "--mp3",
+        "--device", "cpu",
     ]
     if two_stems:
         cmd.extend(["--two-stems", "vocals"])
     cmd.append(audio_path)
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    env = os.environ.copy()
+    # Ensure no CUDA references cause issues
+    env.pop("CUDA_VISIBLE_DEVICES", None)
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
     if result.returncode != 0:
         raise RuntimeError(f"Demucs failed: {result.stderr[:500]}")
 
@@ -42,7 +51,6 @@ def separate_stems(audio_path: str, output_dir: str, two_stems: bool = True) -> 
                 break
 
     if not stems:
-        # List what's actually there for debugging
         found = list(stems_dir.glob("*")) if stems_dir.exists() else []
         raise RuntimeError(f"No stems found in {stems_dir}. Found: {found}")
 
