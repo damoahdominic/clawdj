@@ -1,0 +1,5 @@
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$DIR/venv/bin/activate"
+export PATH="$HOME/.deno/bin:$PATH"
+python "$DIR/backend/anysong.py" "$@"
