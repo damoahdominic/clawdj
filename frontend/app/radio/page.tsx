@@ -700,7 +700,7 @@ export default function Radio() {
       {/* Main Layout: Left lobster + Right content */}
       <div className="flex min-h-screen">
         {/* Dancing Lobster Panel */}
-        <div className="hidden lg:flex w-72 flex-col items-center justify-center sticky top-0 h-screen border-r border-red-900/10">
+        <div className="hidden lg:flex w-80 flex-col items-center justify-center sticky top-0 h-screen border-r border-red-900/10">
           <div className="w-full h-[400px]">
             <DancingLobster isPlaying={isPlaying} bpm={currentBpm} />
           </div>
@@ -739,8 +739,8 @@ export default function Radio() {
             </button>
           </div>
 
-          {/* Mobile lobster (visible on small screens when playing) */}
-          {isPlaying && (
+          {/* Mobile/tablet lobster — visible once playlist loads */}
+          {playlist.length > 0 && (
             <div className="lg:hidden w-full h-[250px] rounded-2xl overflow-hidden bg-gray-900/50 border border-red-900/20">
               <DancingLobster isPlaying={isPlaying} bpm={currentBpm} />
             </div>
