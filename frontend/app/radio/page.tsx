@@ -443,6 +443,8 @@ export default function Radio() {
   const [switchPoint, setSwitchPoint] = useState(0);
   const [isCrossfading, setIsCrossfading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [infinityMode, setInfinityMode] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Settings
   const [crossfadeMs, setCrossfadeMs] = useState(3000);
@@ -548,6 +550,23 @@ export default function Radio() {
     setLoading(false);
   }, [vibeQuery, minBpm, maxBpm, getRandomSwitchPoint]);
 
+  // Infinity mode: load more tracks when 70% through playlist
+  const loadMoreTracks = useCallback(async () => {
+    if (loadingMore || !vibeQuery.trim()) return;
+    setLoadingMore(true);
+
+    try {
+      const existingIds = playlist.map(t => t.id).join(",");
+      const bpmParam = (minBpm > 0 || maxBpm < 200) ? `&min_bpm=${minBpm}&max_bpm=${maxBpm}` : "";
+      const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(vibeQuery)}&count=15&exclude=${existingIds}${bpmParam}`);
+      const data = await res.json();
+      if (data.tracks?.length > 0) {
+        setPlaylist(prev => [...prev, ...data.tracks]);
+      }
+    } catch {}
+    setLoadingMore(false);
+  }, [loadingMore, vibeQuery, playlist, minBpm, maxBpm]);
+
   const doCrossfade = useCallback((nextIndex: number) => {
     if (isCrossfading) return;
     setIsCrossfading(true);
@@ -609,18 +628,30 @@ export default function Radio() {
 
       const isLastTrack = currentIndex >= playlist.length - 1;
 
+      // Infinity mode: load more when 70% through playlist
+      if (infinityMode && !loadingMore && playlist.length > 0) {
+        const playlistProgress = (currentIndex + 1) / playlist.length;
+        if (playlistProgress >= 0.7) {
+          loadMoreTracks();
+        }
+      }
+
       if (pct >= switchPoint && !isCrossfading) {
-        if (!isLastTrack) {
-          doCrossfade(currentIndex + 1);
+        if (!isLastTrack || infinityMode) {
+          // In infinity mode, there might be new tracks by now
+          if (currentIndex + 1 < playlist.length) {
+            doCrossfade(currentIndex + 1);
+          } else if (!infinityMode && !fadeOutTimerRef.current) {
+            doFadeOut();
+          }
         } else if (isLastTrack && !fadeOutTimerRef.current) {
-          // Fade out the last track
           doFadeOut();
         }
       }
     };
     const timer = setInterval(checkProgress, 100);
     return () => clearInterval(timer);
-  }, [switchPoint, currentIndex, playlist.length, isCrossfading, doCrossfade, doFadeOut]);
+  }, [switchPoint, currentIndex, playlist.length, isCrossfading, doCrossfade, doFadeOut, infinityMode, loadingMore, loadMoreTracks]);
 
   // Handle track end (backup if fade didn't trigger)
   useEffect(() => {
@@ -771,6 +802,22 @@ export default function Radio() {
             <input type="range" min={60} max={200} step={5} value={maxBpm} onChange={e => setMaxBpm(Number(e.target.value))} className="w-full h-2 rounded-full appearance-none bg-gray-700 accent-red-500" />
             <div className="text-xs text-red-400 font-mono">{maxBpm >= 200 ? "No maximum" : `${maxBpm} BPM`}</div>
           </div>
+          {/* Infinity Mode Toggle */}
+          <div className="border-t border-gray-700/50 pt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium text-gray-300">♾️ Infinity Mode</label>
+                <p className="text-xs text-gray-500 mt-0.5">Auto-loads new tracks so it never ends</p>
+              </div>
+              <button
+                onClick={() => setInfinityMode(!infinityMode)}
+                className={`w-12 h-6 rounded-full transition-colors relative ${infinityMode ? "bg-orange-500" : "bg-gray-600"}`}
+              >
+                <div className={`w-5 h-5 rounded-full bg-white shadow-md absolute top-0.5 transition-transform ${infinityMode ? "translate-x-6" : "translate-x-0.5"}`} />
+              </button>
+            </div>
+          </div>
+
           <div className="border-t border-gray-700/50 pt-4 space-y-2">
             <p className="text-xs text-gray-500">💿 Drag the vinyl disc to scratch while playing.</p>
             <p className="text-xs text-gray-500">🦞 DJ Lobster has headphones and a turntable!</p>
@@ -906,7 +953,11 @@ export default function Radio() {
           {playlist.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between px-1">
-                <span className="text-sm text-gray-400">Up next · {playlist.length} tracks</span>
+                <span className="text-sm text-gray-400">
+                  Up next · {playlist.length} tracks
+                  {infinityMode && <span className="text-orange-400 ml-1">· ♾️</span>}
+                  {loadingMore && <span className="text-orange-300 ml-1 animate-pulse text-xs">loading more...</span>}
+                </span>
                 <span className="text-xs text-gray-600">{(crossfadeMs / 1000).toFixed(1)}s crossfade</span>
               </div>
               <div className="bg-gray-900/90 backdrop-blur-sm rounded-xl overflow-hidden divide-y divide-gray-800/30">

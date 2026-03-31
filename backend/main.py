@@ -456,12 +456,18 @@ def _order_by_bpm(tracks: list, bpm_range: int = 15) -> list:
 
 
 @app.get("/api/vibe-playlist")
-async def vibe_playlist(q: str, count: int = 15):
-    """Get a BPM-matched playlist of tracks matching a vibe."""
+async def vibe_playlist(q: str, count: int = 15, exclude: str = ""):
+    """Get a BPM-matched playlist of tracks matching a vibe.
+    exclude: comma-separated track IDs to skip (for infinity mode)
+    """
     import urllib.request
     import urllib.parse
     import random
     import concurrent.futures
+
+    exclude_ids = set()
+    if exclude:
+        exclude_ids = {int(x) for x in exclude.split(",") if x.strip().isdigit()}
 
     tracks = []
 
@@ -479,7 +485,7 @@ async def vibe_playlist(q: str, count: int = 15):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 playlist_tracks = json.loads(resp.read().decode()).get("data", [])
 
-            with_preview = [t for t in playlist_tracks if t.get("preview")]
+            with_preview = [t for t in playlist_tracks if t.get("preview") and t.get("id") not in exclude_ids]
             random.shuffle(with_preview)
             tracks = with_preview[:count * 2]  # fetch extra for BPM filtering
     except Exception:
@@ -492,7 +498,7 @@ async def vibe_playlist(q: str, count: int = 15):
             req = urllib.request.Request(surl, headers={"User-Agent": "clawdj/0.2"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 search_tracks = json.loads(resp.read().decode()).get("data", [])
-            with_preview = [t for t in search_tracks if t.get("preview")]
+            with_preview = [t for t in search_tracks if t.get("preview") and t.get("id") not in exclude_ids]
             existing_ids = {t.get("id") for t in tracks}
             for t in with_preview:
                 if t.get("id") not in existing_ids:
