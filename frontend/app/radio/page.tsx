@@ -791,66 +791,41 @@ export default function Radio() {
         </div>
       </div>
 
-      {/* Main Content — centered with lobster top-right */}
-      <div className="max-w-4xl mx-auto p-6">
-        {/* Header row with lobster */}
-        <div className="flex items-start justify-between gap-6 pt-6 mb-8">
-          <div className="flex-1 space-y-6">
-            {/* Nav + Title */}
-            <div className="flex items-center justify-between">
-              <a href="/" className="text-gray-400 hover:text-orange-400 transition-colors">← Mashup</a>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 bg-clip-text text-transparent">🦞 ClawDJ Radio</h1>
-              <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-orange-400 transition-colors text-2xl" title="Settings">⚙️</button>
-            </div>
+      {/* DJ Lobster — absolute background, shifted right */}
+      <div className="fixed top-0 right-0 w-[55%] h-full pointer-events-none z-0 opacity-60 hidden md:block">
+        <DancingLobster isPlaying={isPlaying} bpm={currentBpm} />
+      </div>
 
-            {/* Search */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={vibeQuery}
-                onChange={e => setVibeQuery(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && loadPlaylist()}
-                placeholder="Describe a vibe... hip hop 2000s, chill R&B, afrobeats..."
-                className="flex-1 px-4 py-3 bg-gray-900 border border-red-900/30 rounded-xl text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500/30"
-              />
-              <button
-                onClick={loadPlaylist}
-                disabled={loading || !vibeQuery.trim()}
-                className="px-6 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl font-bold hover:from-red-500 hover:to-orange-400 disabled:opacity-50 transition-all shadow-lg shadow-red-900/30"
-              >
-                {loading ? "..." : "🎵 Go"}
-              </button>
-            </div>
-          </div>
-
-          {/* DJ Lobster — top right corner on desktop */}
-          <div className="hidden md:block w-64 h-64 flex-shrink-0 rounded-2xl overflow-hidden bg-gray-900/30 border border-red-900/10">
-            <DancingLobster isPlaying={isPlaying} bpm={currentBpm} />
-            <div className="text-center -mt-4 relative z-10">
-              <span className="text-xs text-gray-500 font-mono bg-gray-950/80 px-2 py-0.5 rounded">
-                {isPlaying ? `🎧 DJ Lobster · ${currentBpm > 0 ? `${currentBpm} BPM` : "vibing"}` : "🦞 DJ Lobster"}
-              </span>
-            </div>
-          </div>
+      {/* Main Content — centered on top of lobster */}
+      <div className="relative z-10 max-w-2xl mx-auto p-6 pt-10 space-y-8">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <a href="/" className="text-gray-400 hover:text-orange-400 transition-colors">← Mashup</a>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 bg-clip-text text-transparent">🦞 ClawDJ Radio</h1>
+          <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-orange-400 transition-colors text-2xl" title="Settings">⚙️</button>
         </div>
 
-        {/* Mobile lobster — visible once playlist loads */}
-        {playlist.length > 0 && (
-          <div className="md:hidden w-full h-[220px] rounded-2xl overflow-hidden bg-gray-900/30 border border-red-900/10 mb-6">
-            <DancingLobster isPlaying={isPlaying} bpm={currentBpm} />
-            <div className="text-center -mt-4 relative z-10">
-              <span className="text-xs text-gray-500 font-mono bg-gray-950/80 px-2 py-0.5 rounded">
-                {isPlaying ? `🎧 DJ Lobster · ${currentBpm > 0 ? `${currentBpm} BPM` : "vibing"}` : "🦞 DJ Lobster"}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Center column for controls */}
-        <div className="max-w-2xl mx-auto space-y-8">
+        {/* Search */}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={vibeQuery}
+            onChange={e => setVibeQuery(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && loadPlaylist()}
+            placeholder="Describe a vibe... hip hop 2000s, chill R&B, afrobeats..."
+            className="flex-1 px-4 py-3 bg-gray-900/90 backdrop-blur-sm border border-red-900/30 rounded-xl text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500/30"
+          />
+          <button
+            onClick={loadPlaylist}
+            disabled={loading || !vibeQuery.trim()}
+            className="px-6 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl font-bold hover:from-red-500 hover:to-orange-400 disabled:opacity-50 transition-all shadow-lg shadow-red-900/30"
+          >
+            {loading ? "..." : "🎵 Go"}
+          </button>
+        </div>
           {/* Now Playing + Vinyl */}
           {currentTrack && (
-            <div className="bg-gradient-to-br from-gray-900 to-gray-900/80 rounded-2xl p-8 space-y-6 border border-red-900/20 shadow-xl shadow-red-950/20">
+            <div className="bg-gradient-to-br from-gray-900/95 to-gray-900/85 backdrop-blur-sm rounded-2xl p-8 space-y-6 border border-red-900/20 shadow-xl shadow-red-950/20">
               <div className="flex items-center gap-8">
                 {/* Vinyl Disc */}
                 <div className="flex-shrink-0 flex flex-col items-center">
@@ -934,7 +909,7 @@ export default function Radio() {
                 <span className="text-sm text-gray-400">Up next · {playlist.length} tracks</span>
                 <span className="text-xs text-gray-600">{(crossfadeMs / 1000).toFixed(1)}s crossfade</span>
               </div>
-              <div className="bg-gray-900/80 rounded-xl overflow-hidden divide-y divide-gray-800/30">
+              <div className="bg-gray-900/90 backdrop-blur-sm rounded-xl overflow-hidden divide-y divide-gray-800/30">
                 {playlist.map((track, i) => (
                   <button
                     key={track.id}
@@ -980,7 +955,6 @@ export default function Radio() {
             </div>
           </div>
         </div>
-      </div>
     </main>
   );
 }
