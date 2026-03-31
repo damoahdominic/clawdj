@@ -406,3 +406,66 @@ async def vibe_mix(q: str):
         "track_b": {"title": track_b["title"], "artist": track_b["artist"]["name"]},
         "vibe": q,
     }
+
+
+# --- Vibe Playlist (Radio Mode) ---
+
+@app.get("/api/vibe-playlist")
+async def vibe_playlist(q: str, count: int = 15):
+    """Get a playlist of tracks matching a vibe, with preview URLs for instant playback."""
+    import urllib.request
+    import urllib.parse
+    import random
+
+    tracks = []
+
+    # Try playlists first for better curation
+    try:
+        purl = f"https://api.deezer.com/search/playlist?q={urllib.parse.quote(q)}&limit=5"
+        req = urllib.request.Request(purl, headers={"User-Agent": "clawdj/0.2"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            playlists = json.loads(resp.read().decode()).get("data", [])
+
+        if playlists:
+            best = max(playlists, key=lambda p: p.get("nb_tracks", 0))
+            turl = f"https://api.deezer.com/playlist/{best['id']}/tracks?limit=100"
+            req = urllib.request.Request(turl, headers={"User-Agent": "clawdj/0.2"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                playlist_tracks = json.loads(resp.read().decode()).get("data", [])
+
+            # Filter to tracks with preview URLs
+            with_preview = [t for t in playlist_tracks if t.get("preview")]
+            random.shuffle(with_preview)
+            tracks = with_preview[:count]
+    except Exception:
+        pass
+
+    # Fallback to search
+    if len(tracks) < count:
+        try:
+            surl = f"https://api.deezer.com/search?q={urllib.parse.quote(q)}&limit={count * 2}"
+            req = urllib.request.Request(surl, headers={"User-Agent": "clawdj/0.2"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                search_tracks = json.loads(resp.read().decode()).get("data", [])
+            with_preview = [t for t in search_tracks if t.get("preview")]
+            # Add any we don't already have
+            existing_ids = {t.get("id") for t in tracks}
+            for t in with_preview:
+                if t.get("id") not in existing_ids and len(tracks) < count:
+                    tracks.append(t)
+        except Exception:
+            pass
+
+    return {
+        "vibe": q,
+        "count": len(tracks),
+        "tracks": [{
+            "id": t.get("id"),
+            "title": t.get("title", "Unknown"),
+            "artist": t.get("artist", {}).get("name", "Unknown"),
+            "album": t.get("album", {}).get("title", ""),
+            "cover": t.get("album", {}).get("cover_medium", ""),
+            "duration": t.get("duration", 0),
+            "preview": t.get("preview", ""),
+        } for t in tracks],
+    }

@@ -192,6 +192,8 @@ export default function Home() {
         <div className="text-center space-y-2 pt-8">
           <h1 className="text-6xl font-bold">🦞 ClawDJ</h1>
           <p className="text-gray-400 text-lg">AI-Powered Mashup Engine</p>
+          <a href="/radio" className="inline-block mt-2 px-4 py-2 bg-gray-800 rounded-lg text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">🎧 Radio Mode →</a>
+          <a href="/radio" className="inline-block mt-2 px-4 py-2 bg-gray-800 rounded-lg text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">🎧 Radio Mode →</a>
         </div>
 
         {/* Search */}
