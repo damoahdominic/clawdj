@@ -13,6 +13,7 @@ interface PlaylistTrack {
   cover: string;
   duration: number;
   preview: string;
+  bpm: number;
 }
 
 export default function Radio() {
@@ -295,9 +296,10 @@ export default function Radio() {
                     <div className={`font-medium truncate ${i === currentIndex ? "text-white" : "text-gray-300"}`}>{track.title}</div>
                     <div className="text-sm text-gray-500 truncate">{track.artist}</div>
                   </div>
-                  <span className="text-xs text-gray-600">
-                    {Math.floor(track.duration / 60)}:{(track.duration % 60).toString().padStart(2, "0")}
-                  </span>
+                  <div className="text-right">
+                    {track.bpm > 0 && <div className="text-xs text-purple-400 font-mono">{track.bpm} BPM</div>}
+                    <div className="text-xs text-gray-600">{Math.floor(track.duration / 60)}:{(track.duration % 60).toString().padStart(2, "0")}</div>
+                  </div>
                 </button>
               ))}
             </div>

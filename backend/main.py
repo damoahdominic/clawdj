@@ -410,12 +410,58 @@ async def vibe_mix(q: str):
 
 # --- Vibe Playlist (Radio Mode) ---
 
+def _fetch_track_bpm(track_id: int) -> float:
+    """Fetch BPM for a specific track from Deezer."""
+    import urllib.request
+    try:
+        url = f"https://api.deezer.com/track/{track_id}"
+        req = urllib.request.Request(url, headers={"User-Agent": "clawdj/0.2"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            return float(data.get("bpm", 0))
+    except Exception:
+        return 0
+
+
+def _order_by_bpm(tracks: list, bpm_range: int = 15) -> list:
+    """Order tracks by BPM for smooth energy flow.
+    Groups tracks into BPM clusters and picks the largest cluster.
+    Within the cluster, sorts by BPM for gradual progression.
+    """
+    if len(tracks) <= 2:
+        return tracks
+
+    # Find the most common BPM range
+    bpms = [t.get("_bpm", 0) for t in tracks if t.get("_bpm", 0) > 0]
+    if not bpms:
+        return tracks
+
+    # Find the BPM center that captures the most tracks
+    best_center = bpms[0]
+    best_count = 0
+    for center in bpms:
+        count = sum(1 for b in bpms if abs(b - center) <= bpm_range)
+        if count > best_count:
+            best_count = count
+            best_center = center
+
+    # Filter to tracks within range of best center, keep others as fallback
+    in_range = [t for t in tracks if t.get("_bpm", 0) > 0 and abs(t["_bpm"] - best_center) <= bpm_range]
+    out_range = [t for t in tracks if t not in in_range]
+
+    # Sort in-range by BPM for smooth progression
+    in_range.sort(key=lambda t: t.get("_bpm", 0))
+
+    return in_range + out_range
+
+
 @app.get("/api/vibe-playlist")
 async def vibe_playlist(q: str, count: int = 15):
-    """Get a playlist of tracks matching a vibe, with preview URLs for instant playback."""
+    """Get a BPM-matched playlist of tracks matching a vibe."""
     import urllib.request
     import urllib.parse
     import random
+    import concurrent.futures
 
     tracks = []
 
@@ -433,32 +479,56 @@ async def vibe_playlist(q: str, count: int = 15):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 playlist_tracks = json.loads(resp.read().decode()).get("data", [])
 
-            # Filter to tracks with preview URLs
             with_preview = [t for t in playlist_tracks if t.get("preview")]
             random.shuffle(with_preview)
-            tracks = with_preview[:count]
+            tracks = with_preview[:count * 2]  # fetch extra for BPM filtering
     except Exception:
         pass
 
     # Fallback to search
     if len(tracks) < count:
         try:
-            surl = f"https://api.deezer.com/search?q={urllib.parse.quote(q)}&limit={count * 2}"
+            surl = f"https://api.deezer.com/search?q={urllib.parse.quote(q)}&limit={count * 3}"
             req = urllib.request.Request(surl, headers={"User-Agent": "clawdj/0.2"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 search_tracks = json.loads(resp.read().decode()).get("data", [])
             with_preview = [t for t in search_tracks if t.get("preview")]
-            # Add any we don't already have
             existing_ids = {t.get("id") for t in tracks}
             for t in with_preview:
-                if t.get("id") not in existing_ids and len(tracks) < count:
+                if t.get("id") not in existing_ids:
                     tracks.append(t)
         except Exception:
             pass
 
+    # Fetch BPMs in parallel
+    track_ids = [t.get("id") for t in tracks if t.get("id")]
+    bpm_map = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_fetch_track_bpm, tid): tid for tid in track_ids[:count * 2]}
+        for future in concurrent.futures.as_completed(futures, timeout=10):
+            tid = futures[future]
+            try:
+                bpm_map[tid] = future.result()
+            except Exception:
+                pass
+
+    # Attach BPM to tracks
+    for t in tracks:
+        t["_bpm"] = bpm_map.get(t.get("id"), 0)
+
+    # Order by BPM for consistent energy
+    ordered = _order_by_bpm(tracks)[:count]
+
+    # Get the BPM range for the response
+    bpms = [t["_bpm"] for t in ordered if t.get("_bpm", 0) > 0]
+    bpm_info = {}
+    if bpms:
+        bpm_info = {"min_bpm": min(bpms), "max_bpm": max(bpms), "avg_bpm": round(sum(bpms) / len(bpms))}
+
     return {
         "vibe": q,
-        "count": len(tracks),
+        "count": len(ordered),
+        "bpm": bpm_info,
         "tracks": [{
             "id": t.get("id"),
             "title": t.get("title", "Unknown"),
@@ -467,5 +537,6 @@ async def vibe_playlist(q: str, count: int = 15):
             "cover": t.get("album", {}).get("cover_medium", ""),
             "duration": t.get("duration", 0),
             "preview": t.get("preview", ""),
-        } for t in tracks],
+            "bpm": t.get("_bpm", 0),
+        } for t in ordered],
     }
