@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+const CROSSFADE_MS = 3000; // 3 second crossfade
 
 interface PlaylistTrack {
   id: number;
@@ -22,8 +23,16 @@ export default function Radio() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [switchPoint, setSwitchPoint] = useState(0);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const nextAudioRef = useRef<HTMLAudioElement>(null);
+  const [isCrossfading, setIsCrossfading] = useState(false);
+
+  // Two audio elements for crossfade
+  const audioARef = useRef<HTMLAudioElement>(null);
+  const audioBRef = useRef<HTMLAudioElement>(null);
+  const activePlayerRef = useRef<"a" | "b">("a");
+  const crossfadeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const getActiveAudio = () => activePlayerRef.current === "a" ? audioARef.current : audioBRef.current;
+  const getNextAudio = () => activePlayerRef.current === "a" ? audioBRef.current : audioARef.current;
 
   const loadPlaylist = useCallback(async () => {
     if (!vibeQuery.trim()) return;
@@ -31,117 +40,180 @@ export default function Radio() {
     setPlaylist([]);
     setCurrentIndex(-1);
     setIsPlaying(false);
+    setIsCrossfading(false);
+    if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
 
     try {
       const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(vibeQuery)}&count=15`);
       const data = await res.json();
       if (data.tracks?.length > 0) {
         setPlaylist(data.tracks);
-        setCurrentIndex(0);
       }
     } catch {}
     setLoading(false);
   }, [vibeQuery]);
 
-  // Generate random switch point (50-90% through the track)
   const getRandomSwitchPoint = () => 0.5 + Math.random() * 0.4;
 
-  // Start playback when current index changes
-  useEffect(() => {
-    if (currentIndex >= 0 && currentIndex < playlist.length && audioRef.current) {
-      audioRef.current.src = playlist[currentIndex].preview;
-      audioRef.current.load();
-      setSwitchPoint(getRandomSwitchPoint());
-      if (isPlaying) {
-        audioRef.current.play().catch(() => {});
-      }
+  // Crossfade: fade out current, fade in next over CROSSFADE_MS
+  const doCrossfade = useCallback((nextIndex: number) => {
+    if (isCrossfading) return;
+    setIsCrossfading(true);
 
-      // Preload next track
-      if (nextAudioRef.current && currentIndex + 1 < playlist.length) {
-        nextAudioRef.current.src = playlist[currentIndex + 1].preview;
-        nextAudioRef.current.load();
-      }
+    const current = getActiveAudio();
+    const next = getNextAudio();
+    if (!current || !next || nextIndex >= playlist.length) {
+      setIsCrossfading(false);
+      return;
     }
-  }, [currentIndex, playlist]);
 
-  // Track progress and auto-switch
+    // Load next track
+    next.src = playlist[nextIndex].preview;
+    next.load();
+    next.volume = 0;
+
+    next.play().catch(() => {}).then(() => {
+      const steps = 30;
+      const interval = CROSSFADE_MS / steps;
+      let step = 0;
+
+      crossfadeTimerRef.current = setInterval(() => {
+        step++;
+        const ratio = step / steps;
+
+        // Fade out current, fade in next
+        if (current) current.volume = Math.max(0, 1 - ratio);
+        if (next) next.volume = Math.min(1, ratio);
+
+        if (step >= steps) {
+          if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
+
+          // Stop old, swap active
+          current.pause();
+          current.volume = 1;
+          activePlayerRef.current = activePlayerRef.current === "a" ? "b" : "a";
+
+          setCurrentIndex(nextIndex);
+          setSwitchPoint(getRandomSwitchPoint());
+          setIsCrossfading(false);
+        }
+      }, interval);
+    });
+  }, [isCrossfading, playlist]);
+
+  // Track progress and trigger crossfade
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const checkProgress = () => {
+      const audio = getActiveAudio();
+      if (!audio || !audio.duration) return;
 
-    const onTimeUpdate = () => {
-      if (audio.duration) {
-        const pct = audio.currentTime / audio.duration;
-        setProgress(pct * 100);
+      const pct = audio.currentTime / audio.duration;
+      setProgress(pct * 100);
 
-        // Auto-switch at random point
-        if (pct >= switchPoint && currentIndex + 1 < playlist.length) {
-          setCurrentIndex(i => i + 1);
+      // Trigger crossfade at switch point
+      if (pct >= switchPoint && !isCrossfading && currentIndex + 1 < playlist.length) {
+        doCrossfade(currentIndex + 1);
+      }
+    };
+
+    const timer = setInterval(checkProgress, 100);
+    return () => clearInterval(timer);
+  }, [switchPoint, currentIndex, playlist.length, isCrossfading, doCrossfade]);
+
+  // Handle track end without crossfade
+  useEffect(() => {
+    const handleEnded = () => {
+      if (!isCrossfading) {
+        if (currentIndex + 1 < playlist.length) {
+          doCrossfade(currentIndex + 1);
+        } else {
+          setIsPlaying(false);
         }
       }
     };
 
-    const onEnded = () => {
-      if (currentIndex + 1 < playlist.length) {
-        setCurrentIndex(i => i + 1);
-      } else {
-        setIsPlaying(false);
-      }
-    };
-
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("ended", onEnded);
+    const audioA = audioARef.current;
+    const audioB = audioBRef.current;
+    audioA?.addEventListener("ended", handleEnded);
+    audioB?.addEventListener("ended", handleEnded);
     return () => {
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("ended", onEnded);
+      audioA?.removeEventListener("ended", handleEnded);
+      audioB?.removeEventListener("ended", handleEnded);
     };
-  }, [switchPoint, currentIndex, playlist.length]);
+  }, [currentIndex, playlist.length, isCrossfading, doCrossfade]);
+
+  const startPlayback = (index: number) => {
+    const audio = getActiveAudio();
+    if (!audio || index >= playlist.length) return;
+
+    audio.src = playlist[index].preview;
+    audio.volume = 1;
+    audio.load();
+    audio.play().catch(() => {});
+
+    setCurrentIndex(index);
+    setSwitchPoint(getRandomSwitchPoint());
+    setIsPlaying(true);
+  };
 
   const togglePlay = () => {
-    if (!audioRef.current || playlist.length === 0) return;
+    const audio = getActiveAudio();
+    if (!audio || playlist.length === 0) return;
+
     if (isPlaying) {
-      audioRef.current.pause();
+      audio.pause();
+      setIsPlaying(false);
     } else {
-      if (currentIndex < 0) setCurrentIndex(0);
-      audioRef.current.play().catch(() => {});
+      if (currentIndex < 0) {
+        startPlayback(0);
+      } else {
+        audio.play().catch(() => {});
+        setIsPlaying(true);
+      }
     }
-    setIsPlaying(!isPlaying);
   };
 
   const skipToTrack = (index: number) => {
-    setCurrentIndex(index);
-    setIsPlaying(true);
-    setTimeout(() => audioRef.current?.play().catch(() => {}), 100);
+    // Stop everything
+    if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
+    setIsCrossfading(false);
+    audioARef.current?.pause();
+    audioBRef.current?.pause();
+    if (audioARef.current) audioARef.current.volume = 1;
+    if (audioBRef.current) audioBRef.current.volume = 1;
+    activePlayerRef.current = "a";
+
+    startPlayback(index);
   };
 
   const skipNext = () => {
     if (currentIndex + 1 < playlist.length) {
-      skipToTrack(currentIndex + 1);
+      if (isPlaying) {
+        doCrossfade(currentIndex + 1);
+      } else {
+        skipToTrack(currentIndex + 1);
+      }
     }
   };
 
   const skipPrev = () => {
-    if (currentIndex > 0) {
-      skipToTrack(currentIndex - 1);
-    }
+    if (currentIndex > 0) skipToTrack(currentIndex - 1);
   };
 
   const currentTrack = currentIndex >= 0 ? playlist[currentIndex] : null;
 
   return (
     <main className="min-h-screen bg-gray-950 text-white">
-      <audio ref={audioRef} preload="auto" />
-      <audio ref={nextAudioRef} preload="auto" className="hidden" />
+      <audio ref={audioARef} preload="auto" />
+      <audio ref={audioBRef} preload="auto" />
 
       <div className="max-w-2xl mx-auto p-6 space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between pt-6">
           <a href="/" className="text-gray-400 hover:text-white transition-colors">← Mashup</a>
           <h1 className="text-3xl font-bold">🦞 ClawDJ Radio</h1>
           <div className="w-20" />
         </div>
 
-        {/* Vibe Input */}
         <div className="flex gap-2">
           <input
             type="text"
@@ -160,7 +232,6 @@ export default function Radio() {
           </button>
         </div>
 
-        {/* Now Playing */}
         {currentTrack && (
           <div className="bg-gray-900 rounded-2xl p-6 space-y-4">
             <div className="flex items-center gap-4">
@@ -172,79 +243,56 @@ export default function Radio() {
                 <div className="text-gray-400 truncate">{currentTrack.artist}</div>
                 <div className="text-gray-600 text-sm truncate">{currentTrack.album}</div>
               </div>
-              <div className="text-4xl font-bold text-gray-700">
-                {currentIndex + 1}/{playlist.length}
+              <div className="text-right">
+                <div className="text-3xl font-bold text-gray-700">{currentIndex + 1}/{playlist.length}</div>
+                {isCrossfading && <div className="text-xs text-pink-400 animate-pulse">crossfading...</div>}
               </div>
             </div>
 
-            {/* Progress bar */}
             <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden">
               <div
                 className="absolute h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-200"
                 style={{ width: `${progress}%` }}
               />
-              {/* Switch point indicator */}
               <div
-                className="absolute top-0 h-full w-0.5 bg-yellow-500/50"
+                className="absolute top-0 h-full w-1 bg-yellow-500/60 rounded"
                 style={{ left: `${switchPoint * 100}%` }}
+                title="Crossfade point"
               />
             </div>
+            <div className="flex justify-between text-xs text-gray-600">
+              <span>Crossfade: 3s</span>
+              <span>Switch at {Math.round(switchPoint * 100)}%</span>
+            </div>
 
-            {/* Controls */}
             <div className="flex items-center justify-center gap-6">
-              <button
-                onClick={skipPrev}
-                disabled={currentIndex <= 0}
-                className="text-2xl disabled:opacity-30 hover:scale-110 transition-transform"
-              >
-                ⏮
-              </button>
-              <button
-                onClick={togglePlay}
-                className="w-16 h-16 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-center text-3xl hover:scale-105 transition-transform"
-              >
+              <button onClick={skipPrev} disabled={currentIndex <= 0} className="text-2xl disabled:opacity-30 hover:scale-110 transition-transform">⏮</button>
+              <button onClick={togglePlay} className="w-16 h-16 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-center text-3xl hover:scale-105 transition-transform">
                 {isPlaying ? "⏸" : "▶"}
               </button>
-              <button
-                onClick={skipNext}
-                disabled={currentIndex >= playlist.length - 1}
-                className="text-2xl disabled:opacity-30 hover:scale-110 transition-transform"
-              >
-                ⏭
-              </button>
+              <button onClick={skipNext} disabled={currentIndex >= playlist.length - 1} className="text-2xl disabled:opacity-30 hover:scale-110 transition-transform">⏭</button>
             </div>
           </div>
         )}
 
-        {/* Playlist */}
         {playlist.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm text-gray-400 px-1">
-              Up next · {playlist.length} tracks · switches randomly at 50-90%
-            </div>
+            <div className="text-sm text-gray-400 px-1">Up next · {playlist.length} tracks · 3s crossfade at 50-90%</div>
             <div className="bg-gray-900 rounded-xl overflow-hidden divide-y divide-gray-800">
               {playlist.map((track, i) => (
                 <button
                   key={track.id}
                   onClick={() => skipToTrack(i)}
                   className={`w-full flex items-center gap-3 p-3 text-left transition-colors ${
-                    i === currentIndex
-                      ? "bg-purple-900/40"
-                      : i < currentIndex
-                      ? "opacity-50"
-                      : "hover:bg-gray-800"
+                    i === currentIndex ? "bg-purple-900/40" : i < currentIndex ? "opacity-50" : "hover:bg-gray-800"
                   }`}
                 >
                   <span className={`w-6 text-right text-sm ${i === currentIndex ? "text-pink-400 font-bold" : "text-gray-500"}`}>
                     {i === currentIndex && isPlaying ? "♫" : i + 1}
                   </span>
-                  {track.cover && (
-                    <img src={track.cover} alt="" className="w-10 h-10 rounded" />
-                  )}
+                  {track.cover && <img src={track.cover} alt="" className="w-10 h-10 rounded" />}
                   <div className="flex-1 min-w-0">
-                    <div className={`font-medium truncate ${i === currentIndex ? "text-white" : "text-gray-300"}`}>
-                      {track.title}
-                    </div>
+                    <div className={`font-medium truncate ${i === currentIndex ? "text-white" : "text-gray-300"}`}>{track.title}</div>
                     <div className="text-sm text-gray-500 truncate">{track.artist}</div>
                   </div>
                   <span className="text-xs text-gray-600">
@@ -263,9 +311,7 @@ export default function Radio() {
           </div>
         )}
 
-        <p className="text-center text-gray-600 text-sm pb-8">
-          Previews powered by Deezer · clawdj.com
-        </p>
+        <p className="text-center text-gray-600 text-sm pb-8">Previews powered by Deezer · clawdj.com</p>
       </div>
     </main>
   );
