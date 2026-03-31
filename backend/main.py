@@ -1,45 +1,176 @@
-"""ClawDJ Web API."""
+"""ClawDJ Web API — Phase 2."""
 import os
+import sys
 import uuid
+import json
 import asyncio
+import subprocess
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, WebSocket
+from fastapi import FastAPI, UploadFile, File, WebSocket, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
+sys.path.insert(0, os.path.dirname(__file__))
 from services.separator import separate_stems
 from services.analyzer import analyze_track, are_compatible
 from services.mixer import create_mashup
-from services.discovery import search_and_download, search_tracks
 
-app = FastAPI(title="ClawDJ", version="0.1.0")
+app = FastAPI(title="ClawDJ", version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-UPLOAD_DIR = Path("uploads")
-OUTPUT_DIR = Path("outputs")
-STEMS_DIR = Path("stems")
-for d in [UPLOAD_DIR, OUTPUT_DIR, STEMS_DIR]:
-    d.mkdir(exist_ok=True)
+HOME = Path.home()
+MUSIC_DIR = HOME / "music"
+MASHUP_DIR = MUSIC_DIR / "mashups"
+STEMS_DIR = Path("/tmp/clawdj_stems")
+LIBRARY_FILE = HOME / ".clawdj" / "library.json"
+ANYSONG_BIN = HOME / "anysong" / "anysong"
+BACKEND_DIR = Path(__file__).parent
+
+for d in [MUSIC_DIR, MASHUP_DIR, STEMS_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
 
 jobs: dict = {}
 
 
+class MixRequest(BaseModel):
+    track_a: str
+    track_b: str
+    vocals_from: str = "a"
+
+
+# --- Health ---
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
 
+
+# --- Search (Deezer) ---
 
 @app.get("/api/search")
-async def api_search(q: str, limit: int = 5):
-    results = await asyncio.to_thread(search_tracks, q, limit)
-    return {"results": results}
+async def api_search(q: str, limit: int = 8):
+    """Search Deezer for tracks."""
+    import urllib.request
+    import urllib.parse
+    url = f"https://api.deezer.com/search?q={urllib.parse.quote(q)}&limit={limit}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "clawdj/0.2"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            return {"results": data.get("data", [])}
+    except Exception as e:
+        return {"results": [], "error": str(e)}
 
+
+# --- Library ---
+
+@app.get("/api/library")
+def get_library():
+    """Return the local library."""
+    if LIBRARY_FILE.exists():
+        data = json.loads(LIBRARY_FILE.read_text())
+        return {"tracks": data.get("tracks", [])}
+    return {"tracks": []}
+
+
+# --- Mix by name ---
+
+@app.post("/api/mix")
+async def start_mix(req: MixRequest):
+    """Start a mix job. Tracks can be file paths or search queries."""
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": "queued",
+        "track_a": req.track_a,
+        "track_b": req.track_b,
+        "vocals_from": req.vocals_from,
+        "messages": [],
+    }
+    return {"job_id": job_id}
+
+
+@app.websocket("/ws/mix/{job_id}")
+async def mix_progress(websocket: WebSocket, job_id: str):
+    await websocket.accept()
+    if job_id not in jobs:
+        await websocket.send_json({"error": "job not found"})
+        await websocket.close()
+        return
+
+    job = jobs[job_id]
+    track_a_query = job["track_a"]
+    track_b_query = job["track_b"]
+    vocals_from = job["vocals_from"]
+
+    try:
+        # Step 1: Resolve tracks (download if needed)
+        await websocket.send_json({"step": "downloading", "message": "Resolving Track A..."})
+        path_a = await asyncio.to_thread(resolve_track, track_a_query)
+        if not path_a:
+            await websocket.send_json({"error": f"Could not find: {track_a_query}"})
+            await websocket.close()
+            return
+
+        await websocket.send_json({"step": "downloading", "message": "Resolving Track B..."})
+        path_b = await asyncio.to_thread(resolve_track, track_b_query)
+        if not path_b:
+            await websocket.send_json({"error": f"Could not find: {track_b_query}"})
+            await websocket.close()
+            return
+
+        # Step 2: Analyze
+        await websocket.send_json({"step": "analyzing", "message": "Analyzing tracks..."})
+        analysis_a = await asyncio.to_thread(analyze_track, path_a)
+        analysis_b = await asyncio.to_thread(analyze_track, path_b)
+        compat = are_compatible(analysis_a, analysis_b)
+        await websocket.send_json({
+            "step": "analyzing", "progress": 100,
+            "analysis": {"a": analysis_a, "b": analysis_b, "compatibility": compat}
+        })
+
+        # Step 3: Separate stems
+        await websocket.send_json({"step": "separating", "message": "Separating stems (Track A)..."})
+        stems_a = await asyncio.to_thread(separate_stems, path_a, str(STEMS_DIR / job_id / "a"))
+
+        await websocket.send_json({"step": "separating", "message": "Separating stems (Track B)..."})
+        stems_b = await asyncio.to_thread(separate_stems, path_b, str(STEMS_DIR / job_id / "b"))
+
+        # Step 4: Mix
+        await websocket.send_json({"step": "mixing", "message": "Creating mashup..."})
+        output_path = str(MASHUP_DIR / f"clawdj_{job_id}.mp3")
+        await asyncio.to_thread(
+            create_mashup, stems_a, stems_b, analysis_a, analysis_b, output_path,
+            vocals_from=vocals_from
+        )
+
+        jobs[job_id]["status"] = "complete"
+        jobs[job_id]["output"] = output_path
+
+        # Add tracks to library
+        for path, analysis in [(path_a, analysis_a), (path_b, analysis_b)]:
+            add_to_library(path, analysis)
+
+        await websocket.send_json({
+            "step": "complete", "progress": 100,
+            "download": f"/api/download/{job_id}",
+            "analysis": {"a": analysis_a, "b": analysis_b, "compatibility": compat},
+        })
+
+    except Exception as e:
+        await websocket.send_json({"error": str(e)})
+    finally:
+        await websocket.close()
+
+
+# --- Upload-based mix (legacy) ---
 
 @app.post("/api/upload")
 async def upload_tracks(track_a: UploadFile = File(...), track_b: UploadFile = File(...)):
     job_id = str(uuid.uuid4())[:8]
-    job_dir = UPLOAD_DIR / job_id
-    job_dir.mkdir(exist_ok=True)
+    job_dir = MUSIC_DIR / "uploads" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
 
     paths = {}
     for name, f in [("track_a", track_a), ("track_b", track_b)]:
@@ -55,8 +186,9 @@ async def upload_tracks(track_a: UploadFile = File(...), track_b: UploadFile = F
 
 @app.websocket("/ws/jobs/{job_id}")
 async def job_progress(websocket: WebSocket, job_id: str):
+    """Legacy upload-based mix WebSocket."""
     await websocket.accept()
-    if job_id not in jobs:
+    if job_id not in jobs or "paths" not in jobs[job_id]:
         await websocket.send_json({"error": "job not found"})
         await websocket.close()
         return
@@ -83,7 +215,7 @@ async def job_progress(websocket: WebSocket, job_id: str):
         })
 
         await websocket.send_json({"step": "mixing", "progress": 0})
-        output_path = str(OUTPUT_DIR / f"{job_id}_mashup.mp3")
+        output_path = str(MASHUP_DIR / f"clawdj_{job_id}.mp3")
         await asyncio.to_thread(create_mashup, stems_a, stems_b, analysis_a, analysis_b, output_path)
         await websocket.send_json({"step": "complete", "progress": 100, "download": f"/api/download/{job_id}"})
 
@@ -96,8 +228,96 @@ async def job_progress(websocket: WebSocket, job_id: str):
         await websocket.close()
 
 
+# --- Download ---
+
 @app.get("/api/download/{job_id}")
 def download_mashup(job_id: str):
     if job_id not in jobs or jobs[job_id].get("status") != "complete":
         return JSONResponse({"error": "not ready"}, 404)
     return FileResponse(jobs[job_id]["output"], media_type="audio/mpeg", filename=f"clawdj_{job_id}.mp3")
+
+
+# --- Helpers ---
+
+def resolve_track(query: str) -> str:
+    """Resolve a query to a local MP3 path. Downloads via anysong if needed."""
+    # Already a file path
+    if os.path.isfile(query):
+        return query
+
+    # Check music dir for partial match
+    if MUSIC_DIR.exists():
+        q = query.lower()
+        for f in MUSIC_DIR.iterdir():
+            if f.suffix == ".mp3" and q in f.name.lower():
+                return str(f)
+
+    # Download via anysong
+    if ANYSONG_BIN.exists():
+        before = set(MUSIC_DIR.glob("*.mp3"))
+        try:
+            subprocess.run(
+                [str(ANYSONG_BIN), "download", query, "--dir", str(MUSIC_DIR)],
+                timeout=120, capture_output=True
+            )
+        except subprocess.TimeoutExpired:
+            pass
+
+        after = set(MUSIC_DIR.glob("*.mp3"))
+        new_files = after - before
+        if new_files:
+            return str(next(iter(new_files)))
+
+        # Find most recent mp3
+        mp3s = sorted(MUSIC_DIR.glob("*.mp3"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if mp3s:
+            return str(mp3s[0])
+
+    return ""
+
+
+def add_to_library(path: str, analysis: dict):
+    """Add a track to the library if not already there."""
+    lib_dir = LIBRARY_FILE.parent
+    lib_dir.mkdir(parents=True, exist_ok=True)
+
+    lib = {"tracks": [], "updated": ""}
+    if LIBRARY_FILE.exists():
+        try:
+            lib = json.loads(LIBRARY_FILE.read_text())
+        except:
+            pass
+
+    basename = os.path.basename(path)
+    for t in lib.get("tracks", []):
+        if t.get("filename") == basename:
+            return  # already in library
+
+    name = basename.replace(".mp3", "")
+    title, artist = name, "Unknown"
+    if "_by_" in name:
+        parts = name.split("_by_", 1)
+        title = parts[0].replace("_", " ")
+        artist = parts[1].replace("_", " ")
+
+    import time
+    track = {
+        "id": str(int(time.time() * 1000)),
+        "title": title,
+        "artist": artist,
+        "filename": basename,
+        "path": path,
+        "bpm": analysis.get("bpm", 0),
+        "key": analysis.get("key", ""),
+        "camelot": analysis.get("camelot", ""),
+        "energy": analysis.get("energy", 0),
+        "duration_sec": analysis.get("duration_sec", 0),
+        "beat_count": analysis.get("beat_count", 0),
+        "added_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+    if "tracks" not in lib:
+        lib["tracks"] = []
+    lib["tracks"].append(track)
+    lib["updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    LIBRARY_FILE.write_text(json.dumps(lib, indent=2))
