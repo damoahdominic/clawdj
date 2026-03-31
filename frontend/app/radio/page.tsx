@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import * as THREE from "three";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -25,15 +26,8 @@ function DancingLobster({ isPlaying, bpm }: { isPlaying: boolean; bpm: number })
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Dynamically load Three.js
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-    script.onload = () => initScene();
-    document.head.appendChild(script);
-
     function initScene() {
-      const THREE = (window as any).THREE;
-      if (!THREE || !containerRef.current) return;
+      if (!containerRef.current) return;
 
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
@@ -196,6 +190,8 @@ function DancingLobster({ isPlaying, bpm }: { isPlaying: boolean; bpm: number })
 
       return () => window.removeEventListener("resize", onResize);
     }
+
+    initScene();
 
     return () => {
       cancelAnimationFrame(frameRef.current);
