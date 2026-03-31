@@ -35,6 +35,8 @@ interface MixJob {
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [vibeQuery, setVibeQuery] = useState("");
+  const [vibeLoading, setVibeLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<DeezerTrack[]>([]);
   const [searching, setSearching] = useState(false);
   const [library, setLibrary] = useState<LibraryTrack[]>([]);
@@ -67,6 +69,34 @@ export default function Home() {
     }
     setSearching(false);
   }, [searchQuery]);
+
+  const handleVibe = useCallback(async () => {
+    if (!vibeQuery.trim()) return;
+    setVibeLoading(true);
+    setJob({ status: "searching", progress: `Finding tracks for "${vibeQuery}"...`, downloadUrl: "", error: "" });
+    try {
+      const res = await fetch(`${API_URL}/api/vibe-mix?q=${encodeURIComponent(vibeQuery)}`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json();
+        setJob(j => ({ ...j, status: "error", error: err.detail || "Vibe search failed" }));
+        setVibeLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setTrackA(data.track_a.artist + " " + data.track_a.title);
+      setTrackALabel(`${data.track_a.title} — ${data.track_a.artist}`);
+      setTrackB(data.track_b.artist + " " + data.track_b.title);
+      setTrackBLabel(`${data.track_b.title} — ${data.track_b.artist}`);
+      setJob(j => ({ ...j, status: "downloading", progress: `Picked: ${data.track_a.title} × ${data.track_b.title}. Starting mix...` }));
+      setVibeLoading(false);
+      // Auto-start the mix via WebSocket
+      pollJob(data.job_id);
+    } catch (e) {
+      setJob(j => ({ ...j, status: "error", error: e instanceof Error ? e.message : "Unknown error" }));
+      setVibeLoading(false);
+    }
+  }, [vibeQuery]);
+
 
   const selectTrack = (slot: "a" | "b", query: string, label: string) => {
     if (slot === "a") {
@@ -224,6 +254,32 @@ export default function Home() {
               ))}
             </div>
           )}
+        </div>
+
+
+        {/* Vibe Mode */}
+        <div className="relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl blur-xl" />
+          <div className="relative bg-gray-900/80 border border-gray-700 rounded-xl p-4 space-y-3">
+            <div className="text-center text-sm text-gray-400">🎲 Or describe a vibe and let ClawDJ pick for you</div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={vibeQuery}
+                onChange={(e) => setVibeQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleVibe()}
+                placeholder="e.g. hip hop mid 2000s, chill R&B, 90s party bangers..."
+                className="flex-1 px-4 py-3 bg-gray-800 border border-gray-600 rounded-xl text-white placeholder-gray-500 focus:border-pink-500 focus:outline-none"
+              />
+              <button
+                onClick={handleVibe}
+                disabled={vibeLoading || !vibeQuery.trim()}
+                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 transition-all whitespace-nowrap"
+              >
+                {vibeLoading ? "🎲..." : "🎲 Surprise Me"}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Track Selection */}

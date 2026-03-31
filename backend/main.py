@@ -321,3 +321,88 @@ def add_to_library(path: str, analysis: dict):
     lib["tracks"].append(track)
     lib["updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
     LIBRARY_FILE.write_text(json.dumps(lib, indent=2))
+
+
+# --- Vibe / Auto Mix ---
+
+@app.get("/api/vibe")
+async def vibe_search(q: str, limit: int = 6):
+    """Search for tracks matching a vibe/genre description."""
+    import urllib.request
+    import urllib.parse
+    import random
+
+    tracks = []
+
+    # Strategy 1: Search playlists matching the vibe, grab tracks from top result
+    try:
+        purl = f"https://api.deezer.com/search/playlist?q={urllib.parse.quote(q)}&limit=3"
+        req = urllib.request.Request(purl, headers={"User-Agent": "clawdj/0.2"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            playlists = json.loads(resp.read().decode()).get("data", [])
+
+        if playlists:
+            best = max(playlists, key=lambda p: p.get("nb_tracks", 0))
+            turl = f"https://api.deezer.com/playlist/{best['id']}/tracks?limit=50"
+            req = urllib.request.Request(turl, headers={"User-Agent": "clawdj/0.2"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                playlist_tracks = json.loads(resp.read().decode()).get("data", [])
+
+            random.shuffle(playlist_tracks)
+            tracks = playlist_tracks[:limit]
+    except Exception:
+        pass
+
+    # Strategy 2: Fall back to regular search
+    if len(tracks) < 2:
+        try:
+            surl = f"https://api.deezer.com/search?q={urllib.parse.quote(q)}&limit={limit}"
+            req = urllib.request.Request(surl, headers={"User-Agent": "clawdj/0.2"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                search_tracks = json.loads(resp.read().decode()).get("data", [])
+            tracks = search_tracks[:limit]
+        except Exception:
+            pass
+
+    return {"vibe": q, "tracks": tracks, "count": len(tracks)}
+
+
+@app.post("/api/vibe-mix")
+async def vibe_mix(q: str):
+    """Auto-pick two compatible tracks from a vibe query and start a mix job."""
+    import random
+
+    vibe_result = await vibe_search(q, limit=20)
+    tracks = vibe_result.get("tracks", [])
+
+    if len(tracks) < 2:
+        raise HTTPException(400, "Couldn't find enough tracks for that vibe")
+
+    random.shuffle(tracks)
+    track_a = tracks[0]
+    track_b = None
+    for t in tracks[1:]:
+        if t.get("artist", {}).get("name") != track_a.get("artist", {}).get("name"):
+            track_b = t
+            break
+    if not track_b:
+        track_b = tracks[1]
+
+    a_query = f"{track_a['artist']['name']} {track_a['title']}"
+    b_query = f"{track_b['artist']['name']} {track_b['title']}"
+
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": "queued",
+        "track_a": a_query,
+        "track_b": b_query,
+        "vocals_from": "a",
+        "messages": [],
+    }
+
+    return {
+        "job_id": job_id,
+        "track_a": {"title": track_a["title"], "artist": track_a["artist"]["name"]},
+        "track_b": {"title": track_b["title"], "artist": track_b["artist"]["name"]},
+        "vibe": q,
+    }
