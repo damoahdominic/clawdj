@@ -1,0 +1,192 @@
+"use client";
+
+import { useRef, useCallback, useEffect } from "react";
+
+const RPM = 0.75;
+const RADIANS_PER_REVOLUTION = Math.PI * 2;
+const RADIANS_PER_SECOND = RADIANS_PER_REVOLUTION / (60 / RPM);
+const RADIANS_PER_MS = RADIANS_PER_SECOND * 0.001;
+
+interface ScratchCallbacks {
+  onLoop: (state: {
+    playbackSpeed: number;
+    isReversed: boolean;
+    secondsPlayed: number;
+    progress: number;
+  }) => void;
+  onDragEnded: (secondsPlayed: number) => void;
+}
+
+/**
+ * Physics-based vinyl rotation hook.
+ * Tracks angle, smooths playback speed, detects reverse.
+ * Drives SVG rotation and emits state every frame via onLoop.
+ */
+export function useScratch(
+  elRef: React.RefObject<HTMLElement | null>,
+  callbacks: ScratchCallbacks
+) {
+  const angleRef = useRef(0);
+  const anglePrevRef = useRef(0);
+  const maxAngleRef = useRef(RADIANS_PER_REVOLUTION * 600); // large default
+  const isDraggingRef = useRef(false);
+  const isPoweredOnRef = useRef(false);
+  const rafRef = useRef(0);
+  const timestampPrevRef = useRef(performance.now());
+  const centerRef = useRef({ x: 0, y: 0 });
+  const dragFromRef = useRef({ x: 0, y: 0 });
+  const speedBufferRef = useRef<number[]>([]);
+  const callbacksRef = useRef(callbacks);
+  callbacksRef.current = callbacks;
+
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(v, max));
+
+  const getCenter = useCallback(() => {
+    if (!elRef.current) return { x: 0, y: 0 };
+    const rect = elRef.current.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }, [elRef]);
+
+  const angleBetween = (cx: number, cy: number, px: number, py: number) =>
+    Math.atan2(py - cy, px - cx);
+
+  const signedAngleDelta = (from: number, to: number) =>
+    Math.atan2(Math.sin(to - from), Math.cos(to - from));
+
+  const setAngle = useCallback((a: number) => {
+    angleRef.current = clamp(a, 0, maxAngleRef.current);
+  }, []);
+
+  const getSecondsPlayed = useCallback(() => {
+    return angleRef.current / RADIANS_PER_REVOLUTION / RPM;
+  }, []);
+
+  const setDuration = useCallback((dur: number) => {
+    maxAngleRef.current = dur * RPM * RADIANS_PER_REVOLUTION;
+  }, []);
+
+  const powerOn = useCallback(() => {
+    isPoweredOnRef.current = true;
+    speedBufferRef.current = [];
+    timestampPrevRef.current = performance.now();
+    anglePrevRef.current = angleRef.current;
+  }, []);
+
+  const powerOff = useCallback(() => {
+    isPoweredOnRef.current = false;
+    cancelAnimationFrame(rafRef.current);
+  }, []);
+
+  const rewind = useCallback(() => {
+    setAngle(0);
+    if (elRef.current) {
+      elRef.current.style.transform = `rotate(0rad)`;
+    }
+  }, [elRef, setAngle]);
+
+  // Pointer handlers
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
+
+    const onDragStart = (e: PointerEvent) => {
+      centerRef.current = getCenter();
+      dragFromRef.current = { x: e.clientX, y: e.clientY };
+      isDraggingRef.current = true;
+      el.classList.add("is-scratching");
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev: PointerEvent) => {
+        ev.preventDefault();
+        const newPt = { x: ev.clientX, y: ev.clientY };
+        const angleToNew = angleBetween(centerRef.current.x, centerRef.current.y, newPt.x, newPt.y);
+        const angleToFrom = angleBetween(centerRef.current.x, centerRef.current.y, dragFromRef.current.x, dragFromRef.current.y);
+        const delta = signedAngleDelta(angleToFrom, angleToNew);
+        setAngle(angleRef.current - delta);
+        dragFromRef.current = { ...newPt };
+      };
+
+      const onUp = () => {
+        isDraggingRef.current = false;
+        el.classList.remove("is-scratching");
+        document.body.style.userSelect = "";
+        document.body.removeEventListener("pointermove", onMove);
+        document.body.removeEventListener("pointerup", onUp);
+        callbacksRef.current.onDragEnded(getSecondsPlayed());
+      };
+
+      document.body.addEventListener("pointermove", onMove);
+      document.body.addEventListener("pointerup", onUp);
+    };
+
+    el.addEventListener("pointerdown", onDragStart);
+    return () => {
+      el.removeEventListener("pointerdown", onDragStart);
+    };
+  }, [elRef, getCenter, setAngle, getSecondsPlayed]);
+
+  // Animation loop
+  useEffect(() => {
+    const loop = () => {
+      const now = performance.now();
+      const dt = now - timestampPrevRef.current;
+
+      // Auto-rotate when powered on and not dragging
+      if (isPoweredOnRef.current && !isDraggingRef.current) {
+        // Default speed = 1, but use smoothed playbackSpeed for momentum after release
+        const lastSpeed = speedBufferRef.current.length > 0
+          ? speedBufferRef.current[speedBufferRef.current.length - 1]
+          : 1;
+        const speed = isDraggingRef.current ? 0 : (lastSpeed > 0.1 ? 1 : 1);
+        let increment = RADIANS_PER_MS * dt * speed;
+        increment += 0.1; // nudge forward
+        increment = clamp(increment, 0, RADIANS_PER_MS * dt * 4);
+        setAngle(angleRef.current + increment);
+      }
+
+      // Calculate playback speed from angle delta
+      const angleDelta = angleRef.current - anglePrevRef.current;
+      const normalizer = RADIANS_PER_MS * dt;
+      let speed = normalizer > 0 ? angleDelta / normalizer : 0;
+      
+      // Smooth: moving average of last 10
+      speedBufferRef.current.push(speed);
+      if (speedBufferRef.current.length > 10) speedBufferRef.current.shift();
+      const avgSpeed = speedBufferRef.current.reduce((a, b) => a + b, 0) / speedBufferRef.current.length;
+      const smoothedSpeed = clamp(avgSpeed, -4, 4);
+
+      const isReversed = angleRef.current < anglePrevRef.current;
+      const secondsPlayed = getSecondsPlayed();
+      const duration = maxAngleRef.current / (RPM * RADIANS_PER_REVOLUTION);
+      const progress = duration > 0 ? secondsPlayed / duration : 0;
+
+      // Update DOM
+      if (elRef.current) {
+        elRef.current.style.transform = `rotate(${angleRef.current}rad)`;
+      }
+
+      callbacksRef.current.onLoop({
+        playbackSpeed: smoothedSpeed,
+        isReversed,
+        secondsPlayed,
+        progress,
+      });
+
+      anglePrevRef.current = angleRef.current;
+      timestampPrevRef.current = now;
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    rafRef.current = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [elRef, setAngle, getSecondsPlayed]);
+
+  return {
+    setDuration,
+    powerOn,
+    powerOff,
+    rewind,
+    getSecondsPlayed,
+    get isDragging() { return isDraggingRef.current; },
+  };
+}
