@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as THREE from "three";
+import { DeckLayout, type DeckTrack } from "../../components/DeckLayout";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const FADE_OUT_MS = 4000;
@@ -25,7 +26,6 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
   const isPlayingRef = useRef(isPlaying);
   const bpmRef = useRef(bpm);
 
-  // Keep refs in sync with props
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { bpmRef.current = bpm; }, [bpm]);
 
@@ -57,7 +57,6 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       renderer.toneMappingExposure = 1.0;
       container.appendChild(renderer.domElement);
 
-      // Lighting
       const ambient = new THREE.AmbientLight(0x332222, 1.0);
       scene.add(ambient);
 
@@ -77,27 +76,20 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       purpleLight.position.set(0, 4, -8);
       scene.add(purpleLight);
 
-      // Floor
       const floorGeo = new THREE.PlaneGeometry(80, 80);
-      const floorMat = new THREE.MeshStandardMaterial({
-        color: 0x111118, roughness: 0.2, metalness: 0.9,
-      });
+      const floorMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.2, metalness: 0.9 });
       const floor = new THREE.Mesh(floorGeo, floorMat);
       floor.rotation.x = -Math.PI / 2;
       floor.position.y = -0.5;
       scene.add(floor);
 
-      // Glow ring
       const ringGeo = new THREE.RingGeometry(4, 6, 64);
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: 0xff3300, transparent: true, opacity: 0.15, side: THREE.DoubleSide,
-      });
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xff3300, transparent: true, opacity: 0.15, side: THREE.DoubleSide });
       const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = -0.48;
       scene.add(ring);
 
-      // Load GLB models
       const loader = new GLTFLoader();
       const lobsters: THREE.Group[] = [];
 
@@ -105,10 +97,7 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
-        if (maxDim > 0) {
-          model.scale.setScalar(targetHeight / maxDim);
-        }
-        // Ground it
+        if (maxDim > 0) model.scale.setScalar(targetHeight / maxDim);
         const box2 = new THREE.Box3().setFromObject(model);
         model.position.y = -box2.min.y - 0.5;
       };
@@ -168,7 +157,6 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
             );
             eye.position.set(side * 0.3, 2, 0.4);
             group.add(eye);
-            // Claws
             const claw = new THREE.Mesh(
               new THREE.ConeGeometry(0.2, 0.8, 6),
               new THREE.MeshStandardMaterial({ color: 0xdd3300, roughness: 0.3 })
@@ -190,7 +178,6 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
 
       if (cancelled) return;
 
-      // Resize handler
       const onResize = () => {
         const nw = window.innerWidth;
         const nh = window.innerHeight;
@@ -200,24 +187,13 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       };
       window.addEventListener("resize", onResize);
 
-      // Club laser beams
       const laserColors = [0xff0022, 0xff4400, 0xff6600, 0xaa00ff, 0x00aaff, 0xff0066];
       const lasers: THREE.Mesh[] = [];
       for (let i = 0; i < 12; i++) {
         const geo = new THREE.CylinderGeometry(0.03, 0.03, 40, 4);
-        const mat = new THREE.MeshBasicMaterial({
-          color: laserColors[i % laserColors.length],
-          transparent: true,
-          opacity: 0,
-        });
+        const mat = new THREE.MeshBasicMaterial({ color: laserColors[i % laserColors.length], transparent: true, opacity: 0 });
         const beam = new THREE.Mesh(geo, mat);
-        // Originate from ceiling at random X/Z positions
-        beam.position.set(
-          (Math.random() - 0.5) * 20,
-          15,
-          (Math.random() - 0.5) * 20
-        );
-        // Tilt at random angles
+        beam.position.set((Math.random() - 0.5) * 20, 15, (Math.random() - 0.5) * 20);
         beam.rotation.x = (Math.random() - 0.5) * 1.2;
         beam.rotation.z = (Math.random() - 0.5) * 1.2;
         beam.userData.baseRotX = beam.rotation.x;
@@ -230,20 +206,16 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
         lasers.push(beam);
       }
 
-      // Animation loop — started right after init, reads from refs
       const animate = () => {
         if (cancelled) return;
         frameRef.current = requestAnimationFrame(animate);
-
         const playing = isPlayingRef.current;
         const curBpm = bpmRef.current;
         const bpmRate = curBpm > 0 ? curBpm / 120 : 1;
-
         timeRef.current += 0.016 * (playing ? 1 : 0.2);
         const t = timeRef.current;
         const intensity = playing ? 1.0 : 0.15;
 
-        // Orbiting camera
         const orbitSpeed = 0.08 * (playing ? 1 : 0.3);
         const orbitRadius = 16 + Math.sin(t * 0.1) * 3;
         const camY = 5 + Math.sin(t * 0.15) * 2;
@@ -252,24 +224,19 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
         camera.position.y = camY;
         camera.lookAt(0, 1, 0);
 
-        // Dance each lobster
         for (const lobster of lobsters) {
           const i = lobster.userData.index;
           const phase = lobster.userData.phase;
           const baseY = lobster.userData.baseY;
           const baseRotY = lobster.userData.baseRotY;
           const baseScale = lobster.userData.baseScale;
-
           const beatT = t * bpmRate * Math.PI * 2;
           const hop = Math.abs(Math.sin(beatT + phase));
-
           const hopHeight = i === 0 ? 0.3 : 0.8;
           lobster.position.y = baseY + hop * hopHeight * intensity;
-
           const sq = 1.0 - hop * 0.12 * intensity;
           const st = 1.0 + hop * 0.12 * intensity;
           lobster.scale.set(baseScale / sq, baseScale * st, baseScale / sq);
-
           const swaySpeed = i === 0 ? 1.2 : 1.8;
           const swayAmount = i === 0 ? 0.1 : 0.25;
           lobster.rotation.y = baseRotY + Math.sin(t * swaySpeed + phase) * swayAmount * intensity;
@@ -277,7 +244,6 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
           lobster.rotation.x = Math.sin(t * 1.8 + phase + 1) * 0.04 * intensity;
         }
 
-        // Pulsing lights
         const pulse = Math.abs(Math.sin(t * bpmRate * Math.PI * 2));
         redLight.intensity = 2 + pulse * 2 * intensity;
         redLight.position.x = -8 + Math.sin(t * 0.3) * 2;
@@ -285,34 +251,26 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
         orangeLight.position.x = 8 + Math.cos(t * 0.3) * 2;
         purpleLight.intensity = 1.5 + pulse * 1.5 * intensity;
         purpleLight.position.z = -8 + Math.sin(t * 0.2) * 3;
-
-        // Floor ring pulse
         ringMat.opacity = 0.08 + pulse * 0.15 * intensity;
         const s = 1.0 + pulse * 0.15 * intensity;
         ring.scale.set(s, s, 1);
 
-        // Club laser beams — flash randomly when playing
         for (const laser of lasers) {
           const mat = laser.material as THREE.MeshBasicMaterial;
           if (playing) {
-            // Sweep the beam slowly
             laser.rotation.x = laser.userData.baseRotX + Math.sin(t * laser.userData.speed + laser.userData.phase) * 0.4;
             laser.rotation.z = laser.userData.baseRotZ + Math.cos(t * laser.userData.speed * 0.7 + laser.userData.phase) * 0.4;
-
-            // Random flash timing
             laser.userData.nextFlash -= 0.016;
             if (laser.userData.nextFlash <= 0) {
               laser.userData.flashDur = 0.1 + Math.random() * 0.4;
               laser.userData.nextFlash = 0.3 + Math.random() * 2.5;
-              // Randomize color on flash
               mat.color.setHex(laserColors[Math.floor(Math.random() * laserColors.length)]);
             }
-
             if (laser.userData.flashDur > 0) {
               laser.userData.flashDur -= 0.016;
               mat.opacity = 0.4 + pulse * 0.4;
             } else {
-              mat.opacity *= 0.9; // fade out
+              mat.opacity *= 0.9;
             }
           } else {
             mat.opacity *= 0.95;
@@ -363,22 +321,35 @@ export default function Radio() {
   const [minBpm, setMinBpm] = useState(0);
   const [maxBpm, setMaxBpm] = useState(200);
 
-  const [vinylAngle, setVinylAngle] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [scratchActive, setScratchActive] = useState(false);
-  const vinylRef = useRef<HTMLDivElement>(null);
-  const dragStartAngle = useRef(0);
-  const lastAngle = useRef(0);
+  // Dual deck state
+  const [deckATrack, setDeckATrack] = useState<DeckTrack | null>(null);
+  const [deckBTrack, setDeckBTrack] = useState<DeckTrack | null>(null);
+  const [crossfaderValue, setCrossfaderValue] = useState(0);
+  const [activeDeck, setActiveDeck] = useState<"a" | "b">("a");
+  const [scratchActiveA, setScratchActiveA] = useState(false);
+  const [scratchActiveB, setScratchActiveB] = useState(false);
 
   const audioARef = useRef<HTMLAudioElement>(null);
   const audioBRef = useRef<HTMLAudioElement>(null);
   const activePlayerRef = useRef<"a" | "b">("a");
   const crossfadeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const vinylSpinRef = useRef<number>(0);
   const fadeOutTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const getActiveAudio = () => activePlayerRef.current === "a" ? audioARef.current : audioBRef.current;
   const getNextAudio = () => activePlayerRef.current === "a" ? audioBRef.current : audioARef.current;
+
+  // Derive per-deck playing state
+  const isDeckAPlaying = isPlaying && (activeDeck === "a" || (isCrossfading && activeDeck === "b"));
+  const isDeckBPlaying = isPlaying && (activeDeck === "b" || (isCrossfading && activeDeck === "a"));
+
+  // Convert PlaylistTrack → DeckTrack
+  const toDeckTrack = (t: PlaylistTrack): DeckTrack => ({
+    title: t.title,
+    artist: t.artist,
+    cover: t.cover,
+    bpm: t.bpm,
+    album: t.album,
+  });
 
   const getRandomSwitchPoint = useCallback(() => {
     const base = switchThreshold / 100;
@@ -417,6 +388,10 @@ export default function Radio() {
     setCurrentIndex(index);
     setSwitchPoint(getRandomSwitchPoint());
     setIsPlaying(true);
+    // Set deck track (startPlayback is always called when activePlayer === "a")
+    setDeckATrack(toDeckTrack(list[index]));
+    setDeckBTrack(null);
+    setCrossfaderValue(0);
   }, [playlist, getRandomSwitchPoint]);
 
   const loadPlaylist = useCallback(async () => {
@@ -430,6 +405,7 @@ export default function Radio() {
     if (audioARef.current) audioARef.current.volume = 1;
     if (audioBRef.current) audioBRef.current.volume = 1;
     activePlayerRef.current = "a";
+    setActiveDeck("a");
     try {
       const bpmParam = (minBpm > 0 || maxBpm < 200) ? `&min_bpm=${minBpm}&max_bpm=${maxBpm}` : "";
       const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(vibeQuery)}&count=15${bpmParam}`);
@@ -446,6 +422,9 @@ export default function Radio() {
           audio.play().catch(() => {});
           setSwitchPoint(getRandomSwitchPoint());
           setIsPlaying(true);
+          setDeckATrack(toDeckTrack(data.tracks[0]));
+          setDeckBTrack(null);
+          setCrossfaderValue(0);
         }
         return;
       }
@@ -473,27 +452,47 @@ export default function Radio() {
     setIsCrossfading(true);
     const current = getActiveAudio();
     const next = getNextAudio();
+    const currentDeck = activePlayerRef.current;
+    const nextDeck = currentDeck === "a" ? "b" : "a";
+
     if (!current || !next || nextIndex >= playlist.length) {
       setIsCrossfading(false);
       return;
     }
-    next.src = playlist[nextIndex].preview;
+
+    const nextTrack = playlist[nextIndex];
+    // Pre-load the incoming deck's track info
+    if (nextDeck === "b") {
+      setDeckBTrack(toDeckTrack(nextTrack));
+    } else {
+      setDeckATrack(toDeckTrack(nextTrack));
+    }
+
+    next.src = nextTrack.preview;
     next.load();
     next.volume = 0;
     next.play().catch(() => {}).then(() => {
       const steps = 30;
       const interval = crossfadeMs / steps;
       let step = 0;
+      const startCross = currentDeck === "a" ? 0 : 1;
+      const endCross = currentDeck === "a" ? 1 : 0;
+
       crossfadeTimerRef.current = setInterval(() => {
         step++;
         const ratio = step / steps;
         if (current) current.volume = Math.max(0, 1 - ratio);
         if (next) next.volume = Math.min(1, ratio);
+        // Animate crossfader along with volume fade
+        setCrossfaderValue(startCross + (endCross - startCross) * ratio);
+
         if (step >= steps) {
           if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
           current.pause();
           current.volume = 1;
-          activePlayerRef.current = activePlayerRef.current === "a" ? "b" : "a";
+          activePlayerRef.current = nextDeck;
+          setActiveDeck(nextDeck);
+          setCrossfaderValue(endCross);
           setCurrentIndex(nextIndex);
           setSwitchPoint(getRandomSwitchPoint());
           setIsCrossfading(false);
@@ -502,17 +501,51 @@ export default function Radio() {
     });
   }, [isCrossfading, playlist, crossfadeMs, getRandomSwitchPoint]);
 
-  useEffect(() => {
-    if (isPlaying && !isDragging) {
-      const spin = () => {
-        setVinylAngle(prev => prev + 1.5);
-        vinylSpinRef.current = requestAnimationFrame(spin);
-      };
-      vinylSpinRef.current = requestAnimationFrame(spin);
-      return () => cancelAnimationFrame(vinylSpinRef.current);
+  // Manual crossfader — user takes over
+  const handleCrossfaderChange = useCallback((value: number) => {
+    if (isCrossfading && crossfadeTimerRef.current) {
+      clearInterval(crossfadeTimerRef.current);
+      crossfadeTimerRef.current = null;
+      setIsCrossfading(false);
     }
-  }, [isPlaying, isDragging]);
+    setCrossfaderValue(value);
+    if (audioARef.current) audioARef.current.volume = Math.max(0, 1 - value);
+    if (audioBRef.current) audioBRef.current.volume = Math.min(1, value);
+  }, [isCrossfading]);
 
+  // Deck A scratch handlers
+  const handleDeckAScratchStart = useCallback(() => {
+    setScratchActiveA(true);
+    if (audioARef.current) audioARef.current.playbackRate = 0.001;
+  }, []);
+  const handleDeckAScratchEnd = useCallback(() => {
+    setScratchActiveA(false);
+    if (audioARef.current) audioARef.current.playbackRate = 1;
+  }, []);
+  const handleDeckASeek = useCallback((delta: number) => {
+    const audio = audioARef.current;
+    if (audio?.duration) {
+      audio.currentTime = Math.max(0, Math.min(audio.duration - 0.01, audio.currentTime + delta));
+    }
+  }, []);
+
+  // Deck B scratch handlers
+  const handleDeckBScratchStart = useCallback(() => {
+    setScratchActiveB(true);
+    if (audioBRef.current) audioBRef.current.playbackRate = 0.001;
+  }, []);
+  const handleDeckBScratchEnd = useCallback(() => {
+    setScratchActiveB(false);
+    if (audioBRef.current) audioBRef.current.playbackRate = 1;
+  }, []);
+  const handleDeckBSeek = useCallback((delta: number) => {
+    const audio = audioBRef.current;
+    if (audio?.duration) {
+      audio.currentTime = Math.max(0, Math.min(audio.duration - 0.01, audio.currentTime + delta));
+    }
+  }, []);
+
+  // Progress + auto-crossfade check
   useEffect(() => {
     const checkProgress = () => {
       const audio = getActiveAudio();
@@ -526,11 +559,8 @@ export default function Radio() {
       }
       if (pct >= switchPoint && !isCrossfading) {
         if (!isLastTrack || infinityMode) {
-          if (currentIndex + 1 < playlist.length) {
-            doCrossfade(currentIndex + 1);
-          } else if (!infinityMode && !fadeOutTimerRef.current) {
-            doFadeOut();
-          }
+          if (currentIndex + 1 < playlist.length) doCrossfade(currentIndex + 1);
+          else if (!infinityMode && !fadeOutTimerRef.current) doFadeOut();
         } else if (isLastTrack && !fadeOutTimerRef.current) {
           doFadeOut();
         }
@@ -540,6 +570,7 @@ export default function Radio() {
     return () => clearInterval(timer);
   }, [switchPoint, currentIndex, playlist.length, isCrossfading, doCrossfade, doFadeOut, infinityMode, loadingMore, loadMoreTracks]);
 
+  // Handle track ended
   useEffect(() => {
     const handleEnded = () => {
       if (!isCrossfading) {
@@ -556,60 +587,6 @@ export default function Radio() {
       audioB?.removeEventListener("ended", handleEnded);
     };
   }, [currentIndex, playlist.length, isCrossfading, doCrossfade]);
-
-  const getAngleFromEvent = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
-    const rect = vinylRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const clientX = "touches" in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-    const clientY = "touches" in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-    return Math.atan2(clientY - cy, clientX - cx) * (180 / Math.PI);
-  };
-
-  const handleVinylDown = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isPlaying) return;
-    e.preventDefault();
-    setIsDragging(true);
-    setScratchActive(true);
-    dragStartAngle.current = getAngleFromEvent(e) - vinylAngle;
-    lastAngle.current = vinylAngle;
-    const audio = getActiveAudio();
-    if (audio) audio.playbackRate = 0.001;
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const handleMove = (e: MouseEvent | TouchEvent) => {
-      e.preventDefault();
-      const angle = getAngleFromEvent(e);
-      const newAngle = angle - dragStartAngle.current;
-      const delta = newAngle - lastAngle.current;
-      lastAngle.current = newAngle;
-      setVinylAngle(newAngle);
-      const audio = getActiveAudio();
-      if (audio && audio.duration) {
-        const timeDelta = delta * 0.008;
-        audio.currentTime = Math.max(0, Math.min(audio.duration - 0.01, audio.currentTime + timeDelta));
-      }
-    };
-    const handleUp = () => {
-      setIsDragging(false);
-      setScratchActive(false);
-      const audio = getActiveAudio();
-      if (audio) audio.playbackRate = 1;
-    };
-    window.addEventListener("mousemove", handleMove, { passive: false });
-    window.addEventListener("mouseup", handleUp);
-    window.addEventListener("touchmove", handleMove, { passive: false });
-    window.addEventListener("touchend", handleUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("touchend", handleUp);
-    };
-  }, [isDragging]);
 
   const togglePlay = () => {
     const audio = getActiveAudio();
@@ -634,6 +611,8 @@ export default function Radio() {
     if (audioARef.current) audioARef.current.volume = 1;
     if (audioBRef.current) audioBRef.current.volume = 1;
     activePlayerRef.current = "a";
+    setActiveDeck("a");
+    setCrossfaderValue(0);
     startPlayback(index);
   };
 
@@ -649,6 +628,60 @@ export default function Radio() {
   const currentTrack = currentIndex >= 0 ? playlist[currentIndex] : null;
   const currentBpm = currentTrack?.bpm || 0;
 
+  // ---- Session persistence ----
+  // Restore from localStorage on mount (then try backend)
+  useEffect(() => {
+    const restore = async () => {
+      let session: { vibeQuery?: string; playlist?: PlaylistTrack[]; currentIndex?: number } | null = null;
+      // Try backend first
+      try {
+        const res = await fetch(`${API_URL}/api/session`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.playlist?.length > 0) session = data;
+        }
+      } catch {}
+      // Fall back to localStorage
+      if (!session) {
+        try {
+          const raw = localStorage.getItem("clawdj_session");
+          if (raw) session = JSON.parse(raw);
+        } catch {}
+      }
+      if (session?.vibeQuery) setVibeQuery(session.vibeQuery);
+      if (session?.playlist && session.playlist.length > 0) {
+        setPlaylist(session.playlist);
+        const idx = Math.max(0, Math.min(session.currentIndex || 0, session.playlist.length - 1));
+        setCurrentIndex(idx);
+        setDeckATrack(toDeckTrack(session.playlist[idx]));
+      }
+    };
+    restore();
+  }, []);
+
+  // Save on change (debounced 1s)
+  useEffect(() => {
+    if (playlist.length === 0) return;
+    const timer = setTimeout(() => {
+      const sessionData = { vibeQuery, playlist, currentIndex };
+      try {
+        localStorage.setItem("clawdj_session", JSON.stringify(sessionData));
+      } catch {}
+      // Best-effort backend save
+      fetch(`${API_URL}/api/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vibe_query: vibeQuery,
+          playlist,
+          current_index: currentIndex,
+          playback_position: 0,
+        }),
+      }).catch(() => {});
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [vibeQuery, playlist, currentIndex]);
+
   return (
     <main className="min-h-screen text-white relative overflow-hidden">
       <audio ref={audioARef} preload="auto" />
@@ -657,7 +690,7 @@ export default function Radio() {
       {/* Full-screen 3D lobster background */}
       <LobsterBackground isPlaying={isPlaying} bpm={currentBpm} />
 
-      {/* Dark overlay so UI is readable */}
+      {/* Dark overlay */}
       <div className="fixed inset-0 bg-black/20" style={{ zIndex: 1 }} />
 
       {/* Settings Sidebar */}
@@ -666,7 +699,7 @@ export default function Radio() {
         <div className="p-6 space-y-6 h-full overflow-y-auto">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent">DJ Settings</h2>
-            <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-white text-xl">X</button>
+            <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-300">Crossfade Duration</label>
@@ -705,13 +738,15 @@ export default function Radio() {
             </div>
           </div>
           <div className="border-t border-gray-700/50 pt-4 space-y-2">
-            <p className="text-xs text-gray-500">Drag the vinyl disc to scratch while playing.</p>
+            <p className="text-xs text-gray-500">
+              Drag each vinyl record to scratch it while playing. The crossfader blends between Deck A and Deck B.
+            </p>
           </div>
           <div className="border-t border-gray-700/50 pt-4 space-y-3">
             <h3 className="text-sm font-medium text-gray-300">Open Source</h3>
             <a href="https://github.com/damoahdominic/clawdj" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-xl hover:bg-gray-800 transition-colors group">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-600 to-orange-500 flex items-center justify-center text-sm font-bold">C</div>
-              <div><div className="text-sm font-medium text-gray-200 group-hover:text-orange-300">ClawDJ</div><div className="text-xs text-gray-500">AI-powered DJ mixing & radio</div></div>
+              <div><div className="text-sm font-medium text-gray-200 group-hover:text-orange-300">ClawDJ</div><div className="text-xs text-gray-500">AI-powered DJ mixing &amp; radio</div></div>
             </a>
             <a href="https://github.com/damoahdominic/anysong" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-xl hover:bg-gray-800 transition-colors group">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-yellow-500 flex items-center justify-center text-sm font-bold">A</div>
@@ -721,13 +756,13 @@ export default function Radio() {
         </div>
       </div>
 
-      {/* Main Content — floating on top of 3D scene */}
-      <div className="relative z-10 max-w-2xl mx-auto p-6 pt-10 space-y-8">
+      {/* Main Content */}
+      <div className="relative z-10 max-w-4xl mx-auto p-4 pt-8 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <a href="/" className="text-gray-400 hover:text-orange-400 transition-colors text-sm">&larr; Home</a>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 bg-clip-text text-transparent">ClawDJ Radio</h1>
-          <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-orange-400 transition-colors text-xl" title="Settings">&#9881;</button>
+          <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-orange-400 transition-colors text-xl" title="Settings">⚙</button>
         </div>
 
         {/* Search */}
@@ -749,82 +784,40 @@ export default function Radio() {
           </button>
         </div>
 
-        {/* Now Playing + Vinyl */}
-        {currentTrack && (
-          <div className="bg-gradient-to-br from-gray-900/90 to-gray-900/80 backdrop-blur-md rounded-2xl p-8 space-y-6 border border-red-900/20 shadow-xl shadow-red-950/20">
-            <div className="flex items-center gap-8">
-              {/* Vinyl Disc */}
-              <div className="flex-shrink-0 flex flex-col items-center">
-                <div
-                  ref={vinylRef}
-                  onMouseDown={handleVinylDown}
-                  onTouchStart={handleVinylDown}
-                  className={`w-36 h-36 sm:w-44 sm:h-44 rounded-full relative select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
-                  style={{
-                    transform: `rotate(${vinylAngle}deg)`,
-                    background: `radial-gradient(circle at center,
-                      #0a0a0a 15%, #1a1a1a 16%, #111 17%, #2a2a2a 17.5%, #111 18%,
-                      #1a1a1a 25%, #222 26%, #111 26.5%,
-                      #1a1a1a 35%, #252525 36%, #111 36.5%,
-                      #1a1a1a 45%, #222 46%, #111 46.5%,
-                      #1a1a1a 55%, #252525 56%, #111 56.5%,
-                      #1a1a1a 65%, #222 66%, #111 66.5%,
-                      #1a1a1a 75%, #252525 76%, #111 76.5%,
-                      #1a1a1a 85%, #333 90%, #222 100%)`,
-                    boxShadow: scratchActive
-                      ? "0 0 40px rgba(255,80,0,0.5), 0 0 80px rgba(255,40,0,0.2), inset 0 0 30px rgba(0,0,0,0.6)"
-                      : isPlaying
-                      ? "0 0 25px rgba(255,60,0,0.25), inset 0 0 25px rgba(0,0,0,0.5)"
-                      : "0 4px 20px rgba(0,0,0,0.5), inset 0 0 25px rgba(0,0,0,0.5)",
-                  }}
-                >
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-red-600 via-orange-500 to-yellow-500 p-0.5 shadow-lg">
-                      <div className="w-full h-full rounded-full overflow-hidden bg-gray-900 flex items-center justify-center">
-                        {currentTrack.cover ? <img src={currentTrack.cover} alt="" className="w-full h-full object-cover" /> : <span className="text-xl font-bold">DJ</span>}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="absolute inset-0 rounded-full pointer-events-none" style={{ background: "conic-gradient(from 0deg, transparent 0%, rgba(255,255,255,0.04) 10%, transparent 20%, rgba(255,255,255,0.02) 40%, transparent 60%, rgba(255,255,255,0.03) 80%, transparent 100%)" }} />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-2 h-2 rounded-full bg-gray-950 border border-gray-800" /></div>
-                </div>
-                <div className="mt-2 text-center">
-                  {scratchActive ? <span className="text-xs text-orange-400 animate-pulse font-mono">scratching...</span> : isPlaying ? <span className="text-xs text-gray-500">drag to scratch</span> : null}
-                </div>
-              </div>
-
-              {/* Track Info */}
-              <div className="flex-1 min-w-0 space-y-3">
-                <div>
-                  <div className="text-xl font-bold truncate">{currentTrack.title}</div>
-                  <div className="text-orange-300 truncate">{currentTrack.artist}</div>
-                  <div className="text-gray-500 text-sm truncate">{currentTrack.album}</div>
-                </div>
-                <div className="flex items-center gap-3 text-sm flex-wrap">
-                  {currentTrack.bpm > 0 && <span className="px-2.5 py-1 bg-red-900/40 text-red-300 rounded-full font-mono text-xs border border-red-800/30">{currentTrack.bpm} BPM</span>}
-                  <span className="text-gray-500">{currentIndex + 1} / {playlist.length}</span>
-                  {isCrossfading && <span className="text-orange-400 animate-pulse text-xs">crossfading...</span>}
-                </div>
-                <div className="relative h-2.5 bg-gray-800/80 rounded-full overflow-hidden">
-                  <div className="absolute h-full bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 rounded-full transition-all duration-200" style={{ width: `${progress}%` }} />
-                  <div className="absolute top-0 h-full w-0.5 bg-white/40 rounded" style={{ left: `${switchPoint * 100}%` }} title="Crossfade point" />
-                </div>
-                <div className="flex justify-between text-xs text-gray-600">
-                  <span>Crossfade: {(crossfadeMs / 1000).toFixed(1)}s</span>
-                  <span>Switch at {Math.round(switchPoint * 100)}%</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center justify-center gap-8 pt-2">
-              <button onClick={skipPrev} disabled={currentIndex <= 0} className="text-3xl disabled:opacity-30 hover:scale-110 hover:text-orange-400 transition-all">&laquo;</button>
-              <button onClick={togglePlay} className="w-20 h-20 rounded-full bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 flex items-center justify-center text-4xl hover:scale-105 transition-transform shadow-lg shadow-orange-900/40 active:scale-95">
-                {isPlaying ? "\u23F8" : "\u25B6"}
-              </button>
-              <button onClick={skipNext} disabled={currentIndex >= playlist.length - 1} className="text-3xl disabled:opacity-30 hover:scale-110 hover:text-orange-400 transition-all">&raquo;</button>
-            </div>
-          </div>
+        {/* Dual Deck Layout */}
+        {(deckATrack || deckBTrack || playlist.length > 0) && (
+          <DeckLayout
+            deckA={{
+              track: deckATrack,
+              isPlaying: isDeckAPlaying,
+              isScratchActive: scratchActiveA,
+              onScratchStart: handleDeckAScratchStart,
+              onScratchEnd: handleDeckAScratchEnd,
+              onSeek: handleDeckASeek,
+              onPlayPause: togglePlay,
+            }}
+            deckB={{
+              track: deckBTrack,
+              isPlaying: isDeckBPlaying,
+              isScratchActive: scratchActiveB,
+              onScratchStart: handleDeckBScratchStart,
+              onScratchEnd: handleDeckBScratchEnd,
+              onSeek: handleDeckBSeek,
+              onPlayPause: togglePlay,
+            }}
+            crossfaderValue={crossfaderValue}
+            onCrossfaderChange={handleCrossfaderChange}
+            onSkipPrev={skipPrev}
+            onSkipNext={skipNext}
+            canSkipPrev={currentIndex > 0}
+            canSkipNext={currentIndex < playlist.length - 1}
+            isCrossfading={isCrossfading}
+            currentIndex={currentIndex}
+            playlistLength={playlist.length}
+            progress={progress}
+            switchPoint={switchPoint}
+            crossfadeMs={crossfadeMs}
+          />
         )}
 
         {/* Playlist */}
@@ -833,7 +826,7 @@ export default function Radio() {
             <div className="flex items-center justify-between px-1">
               <span className="text-sm text-gray-400">
                 Up next &middot; {playlist.length} tracks
-                {infinityMode && <span className="text-orange-400 ml-1">&middot; infinity</span>}
+                {infinityMode && <span className="text-orange-400 ml-1">&middot; ∞</span>}
                 {loadingMore && <span className="text-orange-300 ml-1 animate-pulse text-xs">loading more...</span>}
               </span>
               <span className="text-xs text-gray-600">{(crossfadeMs / 1000).toFixed(1)}s crossfade</span>
@@ -844,7 +837,11 @@ export default function Radio() {
                   key={`${track.id}-${i}`}
                   onClick={() => skipToTrack(i)}
                   className={`w-full flex items-center gap-3 p-3.5 text-left transition-all ${
-                    i === currentIndex ? "bg-gradient-to-r from-red-900/40 to-orange-900/20 border-l-2 border-orange-500" : i < currentIndex ? "opacity-40 hover:opacity-70" : "hover:bg-gray-800/40"
+                    i === currentIndex
+                      ? "bg-gradient-to-r from-red-900/40 to-orange-900/20 border-l-2 border-orange-500"
+                      : i < currentIndex
+                      ? "opacity-40 hover:opacity-70"
+                      : "hover:bg-gray-800/40"
                   }`}
                 >
                   <span className={`w-6 text-right text-sm ${i === currentIndex ? "text-orange-400 font-bold" : "text-gray-600"}`}>
@@ -868,9 +865,10 @@ export default function Radio() {
         {/* Empty State */}
         {!playlist.length && !loading && (
           <div className="text-center py-20">
-            <div className="text-6xl mb-4">&#127911;</div>
+            <div className="text-6xl mb-4">🎛</div>
             <p className="text-gray-300 text-lg">Type a vibe and hit Go</p>
-            <p className="text-xs mt-2 text-gray-500">Tap the gear icon for BPM range, crossfade settings & more</p>
+            <p className="text-xs mt-2 text-gray-500">Two decks, a crossfader, and scratch-enabled turntables</p>
+            <p className="text-xs mt-1 text-gray-600">Tap ⚙ for BPM range, crossfade settings &amp; more</p>
           </div>
         )}
 

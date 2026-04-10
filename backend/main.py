@@ -28,8 +28,11 @@ LIBRARY_FILE = HOME / ".clawdj" / "library.json"
 ANYSONG_BIN = HOME / "anysong" / "anysong"
 BACKEND_DIR = Path(__file__).parent
 
+SESSION_FILE = HOME / ".clawdj" / "session.json"
+
 for d in [MUSIC_DIR, MASHUP_DIR, STEMS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+(HOME / ".clawdj").mkdir(parents=True, exist_ok=True)
 
 jobs: dict = {}
 
@@ -40,11 +43,41 @@ class MixRequest(BaseModel):
     vocals_from: str = "a"
 
 
+class SessionData(BaseModel):
+    vibe_query: str = ""
+    playlist: list = []
+    current_index: int = -1
+    playback_position: float = 0.0
+
+
 # --- Health ---
 
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.2.0"}
+
+
+# --- Session persistence ---
+
+@app.get("/api/session")
+def get_session():
+    """Return the saved DJ session (playlist, current track, position)."""
+    if SESSION_FILE.exists():
+        try:
+            return json.loads(SESSION_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+@app.post("/api/session")
+def save_session(data: SessionData):
+    """Save the current DJ session state."""
+    try:
+        SESSION_FILE.write_text(data.model_dump_json())
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 # --- Search (Deezer) ---
