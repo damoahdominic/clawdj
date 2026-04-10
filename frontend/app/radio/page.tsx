@@ -326,29 +326,39 @@ export default function Radio() {
   const [deckBTrack, setDeckBTrack] = useState<DeckTrack | null>(null);
   const [crossfaderValue, setCrossfaderValue] = useState(0);
   const [activeDeck, setActiveDeck] = useState<"a" | "b">("a");
+  // Per-deck volume (0-1) for crossfader control of Web Audio gain nodes
+  const [deckAVolume, setDeckAVolume] = useState(1);
+  const [deckBVolume, setDeckBVolume] = useState(0);
+  // Auto-scratch trigger counters (increment to fire auto-scratch on a deck)
   const [scratchActiveA, setScratchActiveA] = useState(false);
   const [scratchActiveB, setScratchActiveB] = useState(false);
+  const [autoScratchA, setAutoScratchA] = useState(0);
+  const [autoScratchB, setAutoScratchB] = useState(0);
 
-  const audioARef = useRef<HTMLAudioElement>(null);
-  const audioBRef = useRef<HTMLAudioElement>(null);
   const activePlayerRef = useRef<"a" | "b">("a");
   const crossfadeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fadeOutTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isCrossfadingRef = useRef(false);
 
-  const getActiveAudio = () => activePlayerRef.current === "a" ? audioARef.current : audioBRef.current;
-  const getNextAudio = () => activePlayerRef.current === "a" ? audioBRef.current : audioARef.current;
+  // Time tracking refs updated by onTimeUpdate (avoids 60fps state updates)
+  const deckASecondsRef = useRef(0);
+  const deckADurationRef = useRef(30);
+  const deckBSecondsRef = useRef(0);
+  const deckBDurationRef = useRef(30);
 
   // Derive per-deck playing state
   const isDeckAPlaying = isPlaying && (activeDeck === "a" || (isCrossfading && activeDeck === "b"));
   const isDeckBPlaying = isPlaying && (activeDeck === "b" || (isCrossfading && activeDeck === "a"));
 
-  // Convert PlaylistTrack → DeckTrack
+  // Convert PlaylistTrack → DeckTrack (include preview + duration for audio engine)
   const toDeckTrack = (t: PlaylistTrack): DeckTrack => ({
     title: t.title,
     artist: t.artist,
     cover: t.cover,
     bpm: t.bpm,
     album: t.album,
+    preview: t.preview,
+    duration: t.duration,
   });
 
   const getRandomSwitchPoint = useCallback(() => {
@@ -356,43 +366,47 @@ export default function Radio() {
     return Math.max(0.3, Math.min(0.95, base + (Math.random() * 0.1 - 0.05)));
   }, [switchThreshold]);
 
+  // ── Volume fade out (end of playlist) ─────────────────────────────────────
+
   const doFadeOut = useCallback(() => {
-    const audio = getActiveAudio();
-    if (!audio) return;
     const steps = 40;
     const interval = FADE_OUT_MS / steps;
     let step = 0;
-    const startVol = audio.volume;
+    const isA = activePlayerRef.current === "a";
     fadeOutTimerRef.current = setInterval(() => {
       step++;
       const ratio = step / steps;
-      audio.volume = Math.max(0, startVol * (1 - ratio));
+      if (isA) setDeckAVolume(Math.max(0, 1 - ratio));
+      else setDeckBVolume(Math.max(0, 1 - ratio));
       if (step >= steps) {
         if (fadeOutTimerRef.current) clearInterval(fadeOutTimerRef.current);
-        audio.pause();
-        audio.volume = 1;
+        fadeOutTimerRef.current = null;
         setIsPlaying(false);
+        if (isA) setDeckAVolume(1);
+        else setDeckBVolume(1);
       }
     }, interval);
   }, []);
 
+  // ── Start initial playback (deck A) ───────────────────────────────────────
+
   const startPlayback = useCallback((index: number, tracks?: PlaylistTrack[]) => {
-    const audio = getActiveAudio();
     const list = tracks || playlist;
-    if (!audio || index >= list.length) return;
-    if (fadeOutTimerRef.current) clearInterval(fadeOutTimerRef.current);
-    audio.src = list[index].preview;
-    audio.volume = 1;
-    audio.load();
-    audio.play().catch(() => {});
+    if (index >= list.length) return;
+    if (fadeOutTimerRef.current) { clearInterval(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
     setCurrentIndex(index);
     setSwitchPoint(getRandomSwitchPoint());
     setIsPlaying(true);
-    // Set deck track (startPlayback is always called when activePlayer === "a")
     setDeckATrack(toDeckTrack(list[index]));
     setDeckBTrack(null);
+    setDeckAVolume(1);
+    setDeckBVolume(0);
     setCrossfaderValue(0);
+    activePlayerRef.current = "a";
+    setActiveDeck("a");
   }, [playlist, getRandomSwitchPoint]);
+
+  // ── Load playlist ──────────────────────────────────────────────────────────
 
   const loadPlaylist = useCallback(async () => {
     if (!vibeQuery.trim()) return;
@@ -400,12 +414,12 @@ export default function Radio() {
     if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
     if (fadeOutTimerRef.current) clearInterval(fadeOutTimerRef.current);
     setIsCrossfading(false);
-    audioARef.current?.pause();
-    audioBRef.current?.pause();
-    if (audioARef.current) audioARef.current.volume = 1;
-    if (audioBRef.current) audioBRef.current.volume = 1;
+    isCrossfadingRef.current = false;
+    setIsPlaying(false);
     activePlayerRef.current = "a";
     setActiveDeck("a");
+    setDeckAVolume(1);
+    setDeckBVolume(0);
     try {
       const bpmParam = (minBpm > 0 || maxBpm < 200) ? `&min_bpm=${minBpm}&max_bpm=${maxBpm}` : "";
       const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(vibeQuery)}&count=15${bpmParam}`);
@@ -414,17 +428,11 @@ export default function Radio() {
         setPlaylist(data.tracks);
         setCurrentIndex(0);
         setLoading(false);
-        const audio = audioARef.current;
-        if (audio && data.tracks[0]?.preview) {
-          audio.src = data.tracks[0].preview;
-          audio.volume = 1;
-          audio.load();
-          audio.play().catch(() => {});
-          setSwitchPoint(getRandomSwitchPoint());
-          setIsPlaying(true);
+        if (data.tracks[0]?.preview) {
           setDeckATrack(toDeckTrack(data.tracks[0]));
           setDeckBTrack(null);
-          setCrossfaderValue(0);
+          setSwitchPoint(getRandomSwitchPoint());
+          setIsPlaying(true);
         }
         return;
       }
@@ -440,124 +448,123 @@ export default function Radio() {
       const bpmParam = (minBpm > 0 || maxBpm < 200) ? `&min_bpm=${minBpm}&max_bpm=${maxBpm}` : "";
       const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(vibeQuery)}&count=15&exclude=${existingIds}${bpmParam}`);
       const data = await res.json();
-      if (data.tracks?.length > 0) {
-        setPlaylist(prev => [...prev, ...data.tracks]);
-      }
+      if (data.tracks?.length > 0) setPlaylist(prev => [...prev, ...data.tracks]);
     } catch {}
     setLoadingMore(false);
   }, [loadingMore, vibeQuery, playlist, minBpm, maxBpm]);
 
+  // ── Crossfade with auto-scratch ────────────────────────────────────────────
+
   const doCrossfade = useCallback((nextIndex: number) => {
-    if (isCrossfading) return;
+    if (isCrossfadingRef.current) return;
+    if (nextIndex >= playlist.length) return;
+    isCrossfadingRef.current = true;
     setIsCrossfading(true);
-    const current = getActiveAudio();
-    const next = getNextAudio();
+
     const currentDeck = activePlayerRef.current;
     const nextDeck = currentDeck === "a" ? "b" : "a";
-
-    if (!current || !next || nextIndex >= playlist.length) {
-      setIsCrossfading(false);
-      return;
-    }
-
     const nextTrack = playlist[nextIndex];
-    // Pre-load the incoming deck's track info
+
+    // Trigger auto-scratch on the outgoing deck
+    if (currentDeck === "a") setAutoScratchA(n => n + 1);
+    else setAutoScratchB(n => n + 1);
+
+    // Load the incoming deck's track (volume=0 initially)
     if (nextDeck === "b") {
       setDeckBTrack(toDeckTrack(nextTrack));
+      setDeckBVolume(0);
     } else {
       setDeckATrack(toDeckTrack(nextTrack));
+      setDeckAVolume(0);
     }
 
-    next.src = nextTrack.preview;
-    next.load();
-    next.volume = 0;
-    next.play().catch(() => {}).then(() => {
+    // Brief delay for auto-scratch effect, then start volume crossfade
+    setTimeout(() => {
       const steps = 30;
       const interval = crossfadeMs / steps;
-      let step = 0;
       const startCross = currentDeck === "a" ? 0 : 1;
       const endCross = currentDeck === "a" ? 1 : 0;
+      let step = 0;
 
       crossfadeTimerRef.current = setInterval(() => {
         step++;
         const ratio = step / steps;
-        if (current) current.volume = Math.max(0, 1 - ratio);
-        if (next) next.volume = Math.min(1, ratio);
-        // Animate crossfader along with volume fade
+        if (currentDeck === "a") {
+          setDeckAVolume(Math.max(0, 1 - ratio));
+          setDeckBVolume(Math.min(1, ratio));
+        } else {
+          setDeckBVolume(Math.max(0, 1 - ratio));
+          setDeckAVolume(Math.min(1, ratio));
+        }
         setCrossfaderValue(startCross + (endCross - startCross) * ratio);
 
         if (step >= steps) {
           if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
-          current.pause();
-          current.volume = 1;
+          crossfadeTimerRef.current = null;
           activePlayerRef.current = nextDeck;
           setActiveDeck(nextDeck);
           setCrossfaderValue(endCross);
+          if (currentDeck === "a") { setDeckAVolume(0); setDeckBVolume(1); }
+          else { setDeckBVolume(0); setDeckAVolume(1); }
           setCurrentIndex(nextIndex);
           setSwitchPoint(getRandomSwitchPoint());
           setIsCrossfading(false);
+          isCrossfadingRef.current = false;
         }
       }, interval);
-    });
-  }, [isCrossfading, playlist, crossfadeMs, getRandomSwitchPoint]);
+    }, 700); // 700ms = 500ms ramp-down + 200ms reverse
+  }, [playlist, crossfadeMs, getRandomSwitchPoint]);
 
-  // Manual crossfader — user takes over
+  // Manual crossfader override
   const handleCrossfaderChange = useCallback((value: number) => {
-    if (isCrossfading && crossfadeTimerRef.current) {
+    if (isCrossfadingRef.current && crossfadeTimerRef.current) {
       clearInterval(crossfadeTimerRef.current);
       crossfadeTimerRef.current = null;
       setIsCrossfading(false);
+      isCrossfadingRef.current = false;
     }
     setCrossfaderValue(value);
-    if (audioARef.current) audioARef.current.volume = Math.max(0, 1 - value);
-    if (audioBRef.current) audioBRef.current.volume = Math.min(1, value);
-  }, [isCrossfading]);
-
-  // Deck A scratch handlers
-  const handleDeckAScratchStart = useCallback(() => {
-    setScratchActiveA(true);
-    if (audioARef.current) audioARef.current.playbackRate = 0.001;
-  }, []);
-  const handleDeckAScratchEnd = useCallback(() => {
-    setScratchActiveA(false);
-    if (audioARef.current) audioARef.current.playbackRate = 1;
-  }, []);
-  const handleDeckASeek = useCallback((delta: number) => {
-    const audio = audioARef.current;
-    if (audio?.duration) {
-      audio.currentTime = Math.max(0, Math.min(audio.duration - 0.01, audio.currentTime + delta));
-    }
+    setDeckAVolume(Math.max(0, 1 - value));
+    setDeckBVolume(Math.min(1, value));
   }, []);
 
-  // Deck B scratch handlers
-  const handleDeckBScratchStart = useCallback(() => {
-    setScratchActiveB(true);
-    if (audioBRef.current) audioBRef.current.playbackRate = 0.001;
-  }, []);
-  const handleDeckBScratchEnd = useCallback(() => {
-    setScratchActiveB(false);
-    if (audioBRef.current) audioBRef.current.playbackRate = 1;
-  }, []);
-  const handleDeckBSeek = useCallback((delta: number) => {
-    const audio = audioBRef.current;
-    if (audio?.duration) {
-      audio.currentTime = Math.max(0, Math.min(audio.duration - 0.01, audio.currentTime + delta));
-    }
+  // ── Deck scratch callbacks (visual state only) ─────────────────────────────
+
+  const handleDeckAScratchStart = useCallback(() => setScratchActiveA(true), []);
+  const handleDeckAScratchEnd = useCallback(() => setScratchActiveA(false), []);
+  const handleDeckBScratchStart = useCallback(() => setScratchActiveB(true), []);
+  const handleDeckBScratchEnd = useCallback(() => setScratchActiveB(false), []);
+
+  // ── Time update callbacks (write to refs, no state churn) ─────────────────
+
+  const handleDeckATimeUpdate = useCallback((seconds: number, duration: number) => {
+    deckASecondsRef.current = seconds;
+    deckADurationRef.current = duration;
   }, []);
 
-  // Progress + auto-crossfade check
+  const handleDeckBTimeUpdate = useCallback((seconds: number, duration: number) => {
+    deckBSecondsRef.current = seconds;
+    deckBDurationRef.current = duration;
+  }, []);
+
+  // ── Progress + auto-crossfade ──────────────────────────────────────────────
+
   useEffect(() => {
     const checkProgress = () => {
-      const audio = getActiveAudio();
-      if (!audio || !audio.duration) return;
-      const pct = audio.currentTime / audio.duration;
+      const isA = activePlayerRef.current === "a";
+      const seconds = isA ? deckASecondsRef.current : deckBSecondsRef.current;
+      const dur = isA ? deckADurationRef.current : deckBDurationRef.current;
+      if (!dur) return;
+      const pct = seconds / dur;
       setProgress(pct * 100);
-      const isLastTrack = currentIndex >= playlist.length - 1;
+
       if (infinityMode && !loadingMore && playlist.length > 0) {
         const playlistProgress = (currentIndex + 1) / playlist.length;
         if (playlistProgress >= 0.7) loadMoreTracks();
       }
-      if (pct >= switchPoint && !isCrossfading) {
+
+      if (pct >= switchPoint && !isCrossfadingRef.current) {
+        const isLastTrack = currentIndex >= playlist.length - 1;
         if (!isLastTrack || infinityMode) {
           if (currentIndex + 1 < playlist.length) doCrossfade(currentIndex + 1);
           else if (!infinityMode && !fadeOutTimerRef.current) doFadeOut();
@@ -570,48 +577,28 @@ export default function Radio() {
     return () => clearInterval(timer);
   }, [switchPoint, currentIndex, playlist.length, isCrossfading, doCrossfade, doFadeOut, infinityMode, loadingMore, loadMoreTracks]);
 
-  // Handle track ended
-  useEffect(() => {
-    const handleEnded = () => {
-      if (!isCrossfading) {
-        if (currentIndex + 1 < playlist.length) doCrossfade(currentIndex + 1);
-        else setIsPlaying(false);
-      }
-    };
-    const audioA = audioARef.current;
-    const audioB = audioBRef.current;
-    audioA?.addEventListener("ended", handleEnded);
-    audioB?.addEventListener("ended", handleEnded);
-    return () => {
-      audioA?.removeEventListener("ended", handleEnded);
-      audioB?.removeEventListener("ended", handleEnded);
-    };
-  }, [currentIndex, playlist.length, isCrossfading, doCrossfade]);
+  // ── Transport controls ─────────────────────────────────────────────────────
 
   const togglePlay = () => {
-    const audio = getActiveAudio();
-    if (!audio || playlist.length === 0) return;
+    if (playlist.length === 0) return;
     if (isPlaying) {
-      if (fadeOutTimerRef.current) clearInterval(fadeOutTimerRef.current);
-      fadeOutTimerRef.current = null;
-      audio.pause();
+      if (fadeOutTimerRef.current) { clearInterval(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
       setIsPlaying(false);
     } else {
       if (currentIndex < 0) startPlayback(0);
-      else { audio.volume = 1; audio.play().catch(() => {}); setIsPlaying(true); }
+      else setIsPlaying(true);
     }
   };
 
   const skipToTrack = (index: number) => {
-    if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
+    if (crossfadeTimerRef.current) { clearInterval(crossfadeTimerRef.current); crossfadeTimerRef.current = null; }
     if (fadeOutTimerRef.current) { clearInterval(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
     setIsCrossfading(false);
-    audioARef.current?.pause();
-    audioBRef.current?.pause();
-    if (audioARef.current) audioARef.current.volume = 1;
-    if (audioBRef.current) audioBRef.current.volume = 1;
+    isCrossfadingRef.current = false;
     activePlayerRef.current = "a";
     setActiveDeck("a");
+    setDeckAVolume(1);
+    setDeckBVolume(0);
     setCrossfaderValue(0);
     startPlayback(index);
   };
@@ -629,11 +616,9 @@ export default function Radio() {
   const currentBpm = currentTrack?.bpm || 0;
 
   // ---- Session persistence ----
-  // Restore from localStorage on mount (then try backend)
   useEffect(() => {
     const restore = async () => {
       let session: { vibeQuery?: string; playlist?: PlaylistTrack[]; currentIndex?: number } | null = null;
-      // Try backend first
       try {
         const res = await fetch(`${API_URL}/api/session`);
         if (res.ok) {
@@ -641,7 +626,6 @@ export default function Radio() {
           if (data.playlist?.length > 0) session = data;
         }
       } catch {}
-      // Fall back to localStorage
       if (!session) {
         try {
           const raw = localStorage.getItem("clawdj_session");
@@ -659,24 +643,15 @@ export default function Radio() {
     restore();
   }, []);
 
-  // Save on change (debounced 1s)
   useEffect(() => {
     if (playlist.length === 0) return;
     const timer = setTimeout(() => {
       const sessionData = { vibeQuery, playlist, currentIndex };
-      try {
-        localStorage.setItem("clawdj_session", JSON.stringify(sessionData));
-      } catch {}
-      // Best-effort backend save
+      try { localStorage.setItem("clawdj_session", JSON.stringify(sessionData)); } catch {}
       fetch(`${API_URL}/api/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vibe_query: vibeQuery,
-          playlist,
-          current_index: currentIndex,
-          playback_position: 0,
-        }),
+        body: JSON.stringify({ vibe_query: vibeQuery, playlist, current_index: currentIndex, playback_position: 0 }),
       }).catch(() => {});
     }, 1000);
     return () => clearTimeout(timer);
@@ -684,9 +659,6 @@ export default function Radio() {
 
   return (
     <main className="min-h-screen text-white relative overflow-hidden">
-      <audio ref={audioARef} preload="auto" />
-      <audio ref={audioBRef} preload="auto" />
-
       {/* Full-screen 3D lobster background */}
       <LobsterBackground isPlaying={isPlaying} bpm={currentBpm} />
 
@@ -791,19 +763,23 @@ export default function Radio() {
               track: deckATrack,
               isPlaying: isDeckAPlaying,
               isScratchActive: scratchActiveA,
+              volume: deckAVolume,
+              autoScratchTrigger: autoScratchA,
               onScratchStart: handleDeckAScratchStart,
               onScratchEnd: handleDeckAScratchEnd,
-              onSeek: handleDeckASeek,
               onPlayPause: togglePlay,
+              onTimeUpdate: handleDeckATimeUpdate,
             }}
             deckB={{
               track: deckBTrack,
               isPlaying: isDeckBPlaying,
               isScratchActive: scratchActiveB,
+              volume: deckBVolume,
+              autoScratchTrigger: autoScratchB,
               onScratchStart: handleDeckBScratchStart,
               onScratchEnd: handleDeckBScratchEnd,
-              onSeek: handleDeckBSeek,
               onPlayPause: togglePlay,
+              onTimeUpdate: handleDeckBTimeUpdate,
             }}
             crossfaderValue={crossfaderValue}
             onCrossfaderChange={handleCrossfaderChange}

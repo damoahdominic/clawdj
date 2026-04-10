@@ -3,149 +3,215 @@
 import { useRef, useCallback } from "react";
 
 /**
- * Web Audio API hook for vinyl noise and scratch oscillator effects.
- * Each Turntable instance gets its own AudioContext.
+ * Physics-based audio engine that manipulates the ACTUAL track's AudioBuffer.
+ * Creates both forward AND reversed buffers. Smooth speed via linearRampToValueAtTime.
  */
 export function useAudioEngine() {
-  const contextRef = useRef<AudioContext | null>(null);
-  const vinylSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const vinylGainRef = useRef<GainNode | null>(null);
-  const oscillatorRef = useRef<OscillatorNode | null>(null);
-  const oscGainRef = useRef<GainNode | null>(null);
-  const isScratchingRef = useRef(false);
-  const noiseInitializedRef = useRef(false);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const crackleRef = useRef<AudioBufferSourceNode | null>(null);
 
-  const getContext = useCallback((): AudioContext => {
-    if (!contextRef.current) {
-      contextRef.current = new (window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    }
-    return contextRef.current;
-  }, []);
+  const forwardBufRef = useRef<AudioBuffer | null>(null);
+  const reversedBufRef = useRef<AudioBuffer | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  /** Resume context (required after user gesture in most browsers). */
-  const resumeContext = useCallback(() => {
-    if (contextRef.current?.state === "suspended") {
-      contextRef.current.resume();
-    }
-  }, []);
+  const isReversedRef = useRef(false);
+  const isPlayingRef = useRef(false);
+  const durationRef = useRef(0);
+  const loadedUrlRef = useRef("");
 
-  /**
-   * Creates a 2-channel vinyl noise buffer (white noise + occasional pops)
-   * and starts looping it at a low gain. Call once on first user interaction.
-   */
-  const initVinylNoise = useCallback(() => {
-    if (typeof window === "undefined") return;
-    if (noiseInitializedRef.current) return;
-    noiseInitializedRef.current = true;
+  // ── Context / gain init ───────────────────────────────────────────────────
 
-    const ctx = getContext();
-    const frameCount = Math.floor(ctx.sampleRate * 1.8);
-    const buffer = ctx.createBuffer(2, frameCount, ctx.sampleRate);
-    const ch0 = buffer.getChannelData(0);
-    const ch1 = buffer.getChannelData(1);
+  const ensureContext = useCallback((): AudioContext => {
+    if (ctxRef.current && ctxRef.current.state !== "closed") return ctxRef.current;
 
-    let popCount = 0;
-    for (let i = 0; i < frameCount; i++) {
-      const rVal = Math.random() * 0.05 - 0.025;
-      ch0[i] = i < frameCount / 2 ? rVal * 0.8 : rVal;
-      if (popCount < 3 && Math.abs(rVal) > 0.0249975) {
-        ch1[i] = rVal < 0 ? -0.9 : 0.9;
-        popCount++;
-      } else {
-        ch1[i] = 0;
-      }
-    }
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
+    const ctx = new (window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
 
     const gain = ctx.createGain();
-    gain.gain.value = 0.25;
-
-    source.connect(gain);
+    gain.gain.value = 1;
     gain.connect(ctx.destination);
-    source.start();
+    gainRef.current = gain;
 
-    vinylSourceRef.current = source;
-    vinylGainRef.current = gain;
-  }, [getContext]);
+    // Subtle vinyl crackle loop
+    const frames = Math.floor(ctx.sampleRate * 2);
+    const noiseBuf = ctx.createBuffer(1, frames, ctx.sampleRate);
+    const nd = noiseBuf.getChannelData(0);
+    for (let i = 0; i < frames; i++) nd[i] = Math.random() * 0.014 - 0.007;
+    const crackle = ctx.createBufferSource();
+    crackle.buffer = noiseBuf;
+    crackle.loop = true;
+    const cg = ctx.createGain();
+    cg.gain.value = 0.05;
+    crackle.connect(cg);
+    cg.connect(ctx.destination);
+    crackle.start();
+    crackleRef.current = crackle;
 
-  /**
-   * Start the scratch effect: mutes vinyl noise, ramps up sawtooth oscillator
-   * whose frequency is modulated by drag velocity.
-   */
-  const startScratch = useCallback((velocity: number) => {
-    if (typeof window === "undefined") return;
-    const ctx = getContext();
-
-    // Mute vinyl noise
-    if (vinylGainRef.current) {
-      vinylGainRef.current.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
-    }
-
-    // Create oscillator if not yet created
-    if (!oscillatorRef.current) {
-      const osc = ctx.createOscillator();
-      osc.type = "sawtooth";
-      osc.frequency.value = 220;
-
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-
-      oscillatorRef.current = osc;
-      oscGainRef.current = gain;
-    }
-
-    const freq = Math.max(60, Math.min(2000, Math.abs(velocity) * 15 + 180));
-    oscillatorRef.current.frequency.setTargetAtTime(freq, ctx.currentTime, 0.015);
-    oscGainRef.current!.gain.setTargetAtTime(0.35, ctx.currentTime, 0.015);
-    isScratchingRef.current = true;
-  }, [getContext]);
-
-  /** Update oscillator frequency as drag velocity changes. */
-  const updateScratch = useCallback((velocity: number) => {
-    if (!isScratchingRef.current || !oscillatorRef.current) return;
-    const ctx = getContext();
-    const freq = Math.max(60, Math.min(2000, Math.abs(velocity) * 15 + 180));
-    oscillatorRef.current.frequency.setTargetAtTime(freq, ctx.currentTime, 0.015);
-  }, [getContext]);
-
-  /** Stop scratch: mute oscillator, restore vinyl noise. */
-  const stopScratch = useCallback(() => {
-    if (!isScratchingRef.current) return;
-    isScratchingRef.current = false;
-    if (typeof window === "undefined") return;
-    const ctx = getContext();
-    if (oscGainRef.current) {
-      oscGainRef.current.gain.setTargetAtTime(0, ctx.currentTime, 0.04);
-    }
-    if (vinylGainRef.current) {
-      vinylGainRef.current.gain.setTargetAtTime(0.25, ctx.currentTime, 0.04);
-    }
-  }, [getContext]);
-
-  /** Disconnect and close the AudioContext (call on unmount). */
-  const dispose = useCallback(() => {
-    try {
-      vinylSourceRef.current?.stop();
-      oscillatorRef.current?.stop();
-      contextRef.current?.close();
-    } catch {
-      // ignore errors during cleanup
-    }
-    vinylSourceRef.current = null;
-    vinylGainRef.current = null;
-    oscillatorRef.current = null;
-    oscGainRef.current = null;
-    contextRef.current = null;
-    noiseInitializedRef.current = false;
+    ctxRef.current = ctx;
+    return ctx;
   }, []);
 
-  return { initVinylNoise, startScratch, updateScratch, stopScratch, resumeContext, dispose };
+  const resume = useCallback(() => {
+    ctxRef.current?.resume();
+  }, []);
+
+  // ── Buffer helpers ────────────────────────────────────────────────────────
+
+  const buildReversed = (buf: AudioBuffer, ctx: AudioContext): AudioBuffer => {
+    const rev = ctx.createBuffer(buf.numberOfChannels, buf.length, buf.sampleRate);
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const src = buf.getChannelData(ch);
+      const dst = rev.getChannelData(ch);
+      for (let i = 0; i < buf.length; i++) dst[i] = src[buf.length - 1 - i];
+    }
+    return rev;
+  };
+
+  // ── Track loading ─────────────────────────────────────────────────────────
+
+  const loadTrack = useCallback(async (url: string): Promise<void> => {
+    if (!url || url === loadedUrlRef.current) return;
+    loadedUrlRef.current = url;
+
+    try { sourceRef.current?.stop(); } catch { /* noop */ }
+    sourceRef.current = null;
+    isPlayingRef.current = false;
+    isReversedRef.current = false;
+    forwardBufRef.current = null;
+    reversedBufRef.current = null;
+    durationRef.current = 0;
+
+    const ctx = ensureContext();
+    if (ctx.state === "suspended") await ctx.resume();
+
+    try {
+      const res = await fetch(url);
+      const ab = await res.arrayBuffer();
+      const buf = await ctx.decodeAudioData(ab);
+      forwardBufRef.current = buf;
+      reversedBufRef.current = buildReversed(buf, ctx);
+      durationRef.current = buf.duration;
+    } catch (e) {
+      console.warn("[useAudioEngine] load failed:", url, e);
+      loadedUrlRef.current = "";
+      throw e;
+    }
+  }, [ensureContext]);
+
+  // ── Playback ──────────────────────────────────────────────────────────────
+
+  const stopSource = useCallback(() => {
+    try { sourceRef.current?.stop(); } catch { /* noop */ }
+    sourceRef.current = null;
+  }, []);
+
+  /** Start (or restart) from a specific track-time position. */
+  const play = useCallback((secondsPlayed: number) => {
+    const ctx = ctxRef.current;
+    const gain = gainRef.current;
+    if (!ctx || !gain) return;
+
+    const buf = isReversedRef.current ? reversedBufRef.current : forwardBufRef.current;
+    if (!buf) return;
+
+    stopSource();
+    const dur = buf.duration;
+    const offset = isReversedRef.current
+      ? Math.max(0, Math.min(dur, dur - secondsPlayed))
+      : Math.max(0, Math.min(dur, secondsPlayed));
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = 1;
+    src.connect(gain);
+    src.start(0, offset);
+    sourceRef.current = src;
+    isPlayingRef.current = true;
+  }, [stopSource]);
+
+  const pause = useCallback(() => {
+    isPlayingRef.current = false;
+    stopSource();
+  }, [stopSource]);
+
+  // ── Speed / direction (called every RAF frame) ────────────────────────────
+
+  /**
+   * Called each animation frame by the physics loop.
+   * On direction change: swaps to reversed buffer at the mirrored position.
+   * Otherwise: smooth playbackRate ramp via linearRampToValueAtTime.
+   */
+  const updateSpeed = useCallback((
+    speed: number,
+    isReversed: boolean,
+    secondsPlayed: number,
+  ) => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+
+    if (isReversed !== isReversedRef.current) {
+      isReversedRef.current = isReversed;
+      const buf = isReversed ? reversedBufRef.current : forwardBufRef.current;
+      const gain = gainRef.current;
+      if (!buf || !gain) return;
+
+      stopSource();
+      const dur = buf.duration;
+      const offset = isReversed
+        ? Math.max(0, Math.min(dur, dur - secondsPlayed))
+        : Math.max(0, Math.min(dur, secondsPlayed));
+
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = Math.max(0.001, Math.abs(speed));
+      src.connect(gain);
+      src.start(0, offset);
+      sourceRef.current = src;
+      return;
+    }
+
+    const src = sourceRef.current;
+    if (!src) return;
+    const absSpeed = Math.max(0.001, Math.abs(speed));
+    src.playbackRate.cancelScheduledValues(ctx.currentTime);
+    src.playbackRate.linearRampToValueAtTime(absSpeed, ctx.currentTime + 0.05);
+  }, [stopSource]);
+
+  // ── Volume ────────────────────────────────────────────────────────────────
+
+  const setVolume = useCallback((vol: number) => {
+    const ctx = ctxRef.current;
+    const gain = gainRef.current;
+    if (!ctx || !gain) return;
+    gain.gain.setTargetAtTime(Math.max(0, Math.min(1, vol)), ctx.currentTime, 0.05);
+  }, []);
+
+  // ── Cleanup ───────────────────────────────────────────────────────────────
+
+  const dispose = useCallback(() => {
+    try { sourceRef.current?.stop(); } catch { /* noop */ }
+    try { crackleRef.current?.stop(); } catch { /* noop */ }
+    try { ctxRef.current?.close(); } catch { /* noop */ }
+    sourceRef.current = null;
+    crackleRef.current = null;
+    gainRef.current = null;
+    ctxRef.current = null;
+    forwardBufRef.current = null;
+    reversedBufRef.current = null;
+    loadedUrlRef.current = "";
+    isPlayingRef.current = false;
+  }, []);
+
+  return {
+    loadTrack,
+    play,
+    pause,
+    updateSpeed,
+    setVolume,
+    resume,
+    dispose,
+    isPlayingRef,
+    durationRef,
+  };
 }

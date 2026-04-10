@@ -9,6 +9,10 @@ export interface DeckTrack {
   cover?: string;
   bpm?: number;
   album?: string;
+  /** Deezer (or other) 30s preview URL — loaded by Turntable's audio engine. */
+  preview?: string;
+  /** Track duration in seconds. */
+  duration?: number;
 }
 
 interface DeckProps {
@@ -17,10 +21,13 @@ interface DeckProps {
   isPlaying: boolean;
   isScratchActive: boolean;
   accentColor: "red" | "orange";
+  /** 0–1 gain fed into the Turntable's Web Audio gain node (crossfader). */
+  volume: number;
+  autoScratchTrigger?: number;
   onScratchStart: () => void;
   onScratchEnd: () => void;
-  onSeek: (delta: number) => void;
   onPlayPause: () => void;
+  onTimeUpdate?: (seconds: number, duration: number) => void;
 }
 
 interface DeckLayoutProps {
@@ -28,7 +35,6 @@ interface DeckLayoutProps {
   deckB: Omit<DeckProps, "deckId" | "accentColor">;
   crossfaderValue: number;
   onCrossfaderChange: (value: number) => void;
-  /** Global transport controls (skip, progress) */
   onSkipPrev: () => void;
   onSkipNext: () => void;
   canSkipPrev: boolean;
@@ -47,37 +53,40 @@ function DeckPanel({
   isPlaying,
   isScratchActive,
   accentColor,
+  volume,
+  autoScratchTrigger,
   onScratchStart,
   onScratchEnd,
-  onSeek,
   onPlayPause,
+  onTimeUpdate,
 }: DeckProps) {
   const borderColor = accentColor === "red" ? "border-red-800/40" : "border-orange-800/40";
   const labelColor = accentColor === "red" ? "text-red-400" : "text-orange-400";
-  const bpmBg = accentColor === "red" ? "bg-red-900/40 border-red-800/30 text-red-300" : "bg-orange-900/40 border-orange-800/30 text-orange-300";
+  const bpmBg = accentColor === "red"
+    ? "bg-red-900/40 border-red-800/30 text-red-300"
+    : "bg-orange-900/40 border-orange-800/30 text-orange-300";
 
   return (
-    <div
-      className={`flex flex-col items-center gap-3 flex-1 min-w-0 rounded-xl p-4 bg-gray-900/70 backdrop-blur-sm border ${borderColor}`}
-    >
-      {/* Deck label */}
+    <div className={`flex flex-col items-center gap-3 flex-1 min-w-0 rounded-xl p-4 bg-gray-900/70 backdrop-blur-sm border ${borderColor}`}>
       <div className={`text-xs font-bold tracking-widest uppercase ${labelColor}`}>
         Deck {deckId}
       </div>
 
-      {/* Turntable */}
       <Turntable
         deckId={deckId}
         isPlaying={isPlaying}
+        audioUrl={track?.preview}
+        volume={volume}
         coverUrl={track?.cover}
         bpm={track?.bpm ?? 120}
+        duration={track?.duration ?? 30}
         accentColor={accentColor}
         onScratchStart={onScratchStart}
         onScratchEnd={onScratchEnd}
-        onSeek={onSeek}
+        onTimeUpdate={onTimeUpdate}
+        autoScratchTrigger={autoScratchTrigger}
       />
 
-      {/* Scratch indicator */}
       <div className="h-4 flex items-center">
         {isScratchActive ? (
           <span className={`text-xs animate-pulse font-mono ${labelColor}`}>✦ scratching</span>
@@ -86,7 +95,6 @@ function DeckPanel({
         ) : null}
       </div>
 
-      {/* Track info */}
       <div className="w-full text-center space-y-0.5 min-h-[52px] flex flex-col items-center justify-center">
         {track ? (
           <>
@@ -107,7 +115,6 @@ function DeckPanel({
         )}
       </div>
 
-      {/* Play / Pause */}
       <button
         onClick={onPlayPause}
         disabled={!track}
@@ -123,9 +130,6 @@ function DeckPanel({
   );
 }
 
-/**
- * Dual-deck DJ layout with turntables, crossfader, and transport controls.
- */
 export function DeckLayout({
   deckA,
   deckB,
@@ -144,61 +148,32 @@ export function DeckLayout({
 }: DeckLayoutProps) {
   return (
     <div className="bg-gradient-to-br from-gray-900/90 to-gray-900/80 backdrop-blur-md rounded-2xl p-6 space-y-5 border border-red-900/20 shadow-xl shadow-red-950/20">
-      {/* Decks row */}
       <div className="flex items-start gap-4">
-        <DeckPanel
-          deckId="A"
-          accentColor="red"
-          {...deckA}
-        />
+        <DeckPanel deckId="A" accentColor="red" {...deckA} />
 
-        {/* Center column: crossfader + transport */}
         <div className="flex flex-col items-center justify-center gap-4 pt-8 flex-shrink-0 w-32">
-          {/* Crossfader */}
-          <Crossfader
-            value={crossfaderValue}
-            onChange={onCrossfaderChange}
-          />
-
-          {/* Transport */}
+          <Crossfader value={crossfaderValue} onChange={onCrossfaderChange} />
           <div className="flex items-center gap-3">
-            <button
-              onClick={onSkipPrev}
-              disabled={!canSkipPrev}
-              className="text-2xl disabled:opacity-30 hover:scale-110 hover:text-orange-400 transition-all text-gray-300"
-              title="Previous"
-            >
+            <button onClick={onSkipPrev} disabled={!canSkipPrev}
+              className="text-2xl disabled:opacity-30 hover:scale-110 hover:text-orange-400 transition-all text-gray-300" title="Previous">
               ⏮
             </button>
-            <button
-              onClick={onSkipNext}
-              disabled={!canSkipNext}
-              className="text-2xl disabled:opacity-30 hover:scale-110 hover:text-orange-400 transition-all text-gray-300"
-              title="Next"
-            >
+            <button onClick={onSkipNext} disabled={!canSkipNext}
+              className="text-2xl disabled:opacity-30 hover:scale-110 hover:text-orange-400 transition-all text-gray-300" title="Next">
               ⏭
             </button>
           </div>
-
-          {/* Track counter */}
           <div className="text-center">
-            <span className="text-xs text-gray-500">
-              {currentIndex + 1} / {playlistLength}
-            </span>
+            <span className="text-xs text-gray-500">{currentIndex + 1} / {playlistLength}</span>
             {isCrossfading && (
               <div className="text-xs text-orange-400 animate-pulse mt-0.5">crossfading</div>
             )}
           </div>
         </div>
 
-        <DeckPanel
-          deckId="B"
-          accentColor="orange"
-          {...deckB}
-        />
+        <DeckPanel deckId="B" accentColor="orange" {...deckB} />
       </div>
 
-      {/* Progress bar */}
       {playlistLength > 0 && (
         <div className="space-y-1">
           <div className="relative h-2 bg-gray-800/80 rounded-full overflow-hidden">

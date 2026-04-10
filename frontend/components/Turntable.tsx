@@ -7,143 +7,179 @@ import { useAudioEngine } from "../hooks/useAudioEngine";
 export interface TurntableProps {
   deckId: "A" | "B";
   isPlaying: boolean;
+  audioUrl?: string;
+  /** 0–1; controlled externally by the crossfader. */
+  volume?: number;
   coverUrl?: string;
   bpm?: number;
+  /** Expected track duration in seconds (used for physics before audio loads). */
+  duration?: number;
   accentColor?: "red" | "orange";
   onScratchStart?: () => void;
   onScratchEnd?: () => void;
-  onSeek?: (timeDelta: number) => void;
+  /** Fires every RAF frame with the current playback position. */
+  onTimeUpdate?: (secondsPlayed: number, duration: number) => void;
+  /** Increment to trigger an auto-scratch effect (for crossfade transitions). */
+  autoScratchTrigger?: number;
 }
 
-/**
- * Scratchable vinyl turntable component.
- *
- * Renders an SVG record that:
- * - Auto-spins at BPM-scaled speed while playing (via RAF, no React state updates)
- * - Lets the user drag to scratch when playing (pointer events via useScratch)
- * - Plays vinyl noise + sawtooth scratch sounds via Web Audio API (useAudioEngine)
- */
 export function Turntable({
   deckId,
   isPlaying,
+  audioUrl,
+  volume = 1,
   coverUrl,
   bpm = 120,
+  duration = 30,
   accentColor = "red",
   onScratchStart,
   onScratchEnd,
-  onSeek,
+  onTimeUpdate,
+  autoScratchTrigger = 0,
 }: TurntableProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const angleRef = useRef(0);
-  const rafRef = useRef<number>(0);
-  const { initVinylNoise, startScratch, updateScratch, stopScratch, resumeContext, dispose } =
-    useAudioEngine();
+  const engine = useAudioEngine();
 
-  // Clean up AudioContext on unmount
-  useEffect(() => () => dispose(), [dispose]);
+  // Stable refs so closures in the RAF loop always see latest values
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
-  const handleScratchStart = () => {
-    resumeContext();
-    initVinylNoise();
-    startScratch(0);
-    onScratchStart?.();
-  };
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
 
-  const handleScratchMove = (velocity: number) => {
-    updateScratch(velocity);
-  };
+  const audioLoadedRef = useRef(false);
+  const trackDurationRef = useRef(duration);
+  useEffect(() => { trackDurationRef.current = duration; }, [duration]);
 
-  const handleScratchEnd = () => {
-    stopScratch();
-    onScratchEnd?.();
-  };
+  const autoScratchingRef = useRef(false);
+  const prevAutoScratchTrigger = useRef(0);
 
-  const { isDragging } = useScratch(svgRef as React.RefObject<SVGSVGElement>, {
-    isActive: isPlaying,
-    onScratchStart: handleScratchStart,
-    onScratchMove: handleScratchMove,
-    onScratchEnd: handleScratchEnd,
-    onSeek,
-  });
+  // ── useScratch ─────────────────────────────────────────────────────────────
 
-  // Auto-spin via RAF — updates DOM directly, no React state, no re-renders
+  const { isDragging, angleRef, resetPosition } = useScratch(
+    svgRef as React.RefObject<SVGSVGElement | HTMLElement | null>,
+    {
+      isActive: isPlaying,
+      duration,
+      onLoop: ({ playbackSpeed, isReversed, secondsPlayed }) => {
+        // 1. Update SVG rotation directly (no React state, no re-render)
+        const group = svgRef.current?.getElementById("rg_" + deckId);
+        if (group) {
+          const deg = ((angleRef.current * 180) / Math.PI) % 360;
+          group.setAttribute("transform", `rotate(${deg}, 100, 100)`);
+        }
+
+        // 2. Drive the audio engine
+        if (isPlayingRef.current && audioLoadedRef.current && !autoScratchingRef.current) {
+          engine.updateSpeed(playbackSpeed, isReversed, secondsPlayed);
+        }
+
+        // 3. Report position upstream
+        const dur = trackDurationRef.current;
+        onTimeUpdateRef.current?.(secondsPlayed, dur);
+      },
+      onDragStart: () => onScratchStart?.(),
+      onDragEnd: (seconds) => {
+        onScratchEnd?.();
+        if (isPlayingRef.current && audioLoadedRef.current) {
+          engine.play(seconds);
+        }
+      },
+    },
+  );
+
+  // ── Load track ─────────────────────────────────────────────────────────────
+
   useEffect(() => {
-    if (!isPlaying || isDragging) {
-      cancelAnimationFrame(rafRef.current);
-      return;
-    }
-    const bpmRate = bpm > 0 ? bpm / 120 : 1;
-    const degreesPerFrame = 1.8 * bpmRate;
-
-    const spin = () => {
-      angleRef.current = (angleRef.current + degreesPerFrame) % 360;
-      const group = svgRef.current?.getElementById("rg_" + deckId);
-      if (group) {
-        group.setAttribute("transform", `rotate(${angleRef.current}, 100, 100)`);
+    if (!audioUrl) return;
+    audioLoadedRef.current = false;
+    resetPosition();
+    engine.loadTrack(audioUrl).then(() => {
+      const actualDur = engine.durationRef.current;
+      if (actualDur > 0) trackDurationRef.current = actualDur;
+      audioLoadedRef.current = true;
+      if (isPlayingRef.current) {
+        engine.resume();
+        engine.play(0);
       }
-      rafRef.current = requestAnimationFrame(spin);
-    };
-    rafRef.current = requestAnimationFrame(spin);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [isPlaying, isDragging, bpm, deckId]);
+    }).catch(() => { /* handled in engine */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioUrl]);
 
-  // When scratching: sync SVG rotation with pointer angle (set by useScratch)
-  // useScratch drives the DOM directly via the returned angle; we just sync angleRef.
-  // (The SVG transform during dragging is updated by the handlePointerMove via setAngle,
-  //  but since we manage the DOM directly in auto-spin, we need to also update during drag.)
-  // We use a separate effect to keep it clean.
-  const dragAngleRef = useRef(0);
-  const prevDraggingRef = useRef(false);
+  // ── Play / pause ───────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (isDragging) {
-      prevDraggingRef.current = true;
-    } else if (prevDraggingRef.current) {
-      // Just released — restore spin from current DOM angle
-      prevDraggingRef.current = false;
+    engine.resume();
+    if (isPlaying) {
+      if (audioLoadedRef.current) engine.play(0);
+      // If not loaded yet, loadTrack().then() handles it
+    } else {
+      engine.pause();
     }
-  }, [isDragging]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying]);
 
-  // Wire up pointer-move during drag to directly rotate the SVG group
+  // ── Volume (crossfader) ────────────────────────────────────────────────────
+
   useEffect(() => {
-    if (!isDragging) return;
-    const svg = svgRef.current;
-    if (!svg) return;
+    engine.setVolume(volume);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [volume]);
 
-    const handleMove = (e: PointerEvent) => {
-      const rect = svg.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const angle = (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI;
-      const displayAngle = angle - dragAngleRef.current;
-      const group = svg.getElementById("rg_" + deckId);
-      if (group) {
-        group.setAttribute("transform", `rotate(${displayAngle}, 100, 100)`);
-        angleRef.current = displayAngle;
+  // ── Auto-scratch (called before crossfade transitions) ────────────────────
+
+  useEffect(() => {
+    if (autoScratchTrigger === 0) return;
+    if (autoScratchTrigger === prevAutoScratchTrigger.current) return;
+    prevAutoScratchTrigger.current = autoScratchTrigger;
+    if (!audioLoadedRef.current) return;
+
+    autoScratchingRef.current = true;
+
+    // Step 1: ramp down speed to 0 over 500ms
+    const STEPS = 10;
+    const INTERVAL = 50;
+    let step = 0;
+    const rampDown = setInterval(() => {
+      step++;
+      const spd = 1 - step / STEPS;
+      const maxAngle = Math.max(1, trackDurationRef.current) * 0.75 * Math.PI * 2;
+      const seconds = maxAngle > 0
+        ? (Math.max(0, Math.min(maxAngle, angleRef.current)) / maxAngle) * trackDurationRef.current
+        : 0;
+      engine.updateSpeed(Math.max(0.001, spd), false, seconds);
+      if (step >= STEPS) {
+        clearInterval(rampDown);
+        // Step 2: brief reverse scratch (200ms)
+        const maxA = Math.max(1, trackDurationRef.current) * 0.75 * Math.PI * 2;
+        const secs = maxA > 0
+          ? (Math.max(0, Math.min(maxA, angleRef.current)) / maxA) * trackDurationRef.current
+          : 0;
+        engine.updateSpeed(1, true, secs);
+        setTimeout(() => {
+          autoScratchingRef.current = false;
+        }, 200);
       }
-    };
+    }, INTERVAL);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoScratchTrigger]);
 
-    // Set the drag start offset
-    const handleDown = (e: PointerEvent) => {
-      const rect = svg.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const angle = (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI;
-      dragAngleRef.current = angle - angleRef.current;
-    };
+  // ── Cleanup ────────────────────────────────────────────────────────────────
 
-    window.addEventListener("pointermove", handleMove);
-    return () => window.removeEventListener("pointermove", handleMove);
-  }, [isDragging, deckId]);
+  useEffect(() => () => engine.dispose(), [engine]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   const color = accentColor === "red" ? "#ef4444" : "#f97316";
   const gradientEnd = accentColor === "red" ? "#7f1d1d" : "#7c2d12";
   const gradientMid = accentColor === "red" ? "#991b1b" : "#9a3412";
-  const glowColor =
-    accentColor === "red" ? "rgba(239,68,68,0.45)" : "rgba(249,115,22,0.45)";
+  const glowColor = accentColor === "red" ? "rgba(239,68,68,0.45)" : "rgba(249,115,22,0.45)";
   const vinylId = `vinyl-${deckId}`;
   const labelId = `label-${deckId}`;
   const clipId = `lclip-${deckId}`;
+
+  // bpm is kept for future use (tonearm angle, etc.)
+  void bpm;
 
   return (
     <div className="relative flex items-center justify-center">
@@ -153,11 +189,7 @@ export function Turntable({
         width="200"
         height="200"
         className={`select-none ${
-          isPlaying
-            ? isDragging
-              ? "cursor-grabbing"
-              : "cursor-grab"
-            : "cursor-default"
+          isPlaying ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
         }`}
         style={{
           filter: isDragging
@@ -199,41 +231,21 @@ export function Turntable({
           </clipPath>
         </defs>
 
-        {/* Record group — rotates */}
         <g id={`rg_${deckId}`}>
-          {/* Vinyl body */}
           <circle cx="100" cy="100" r="96" fill={`url(#${vinylId})`} />
-          {/* Subtle sheen overlay */}
-          <circle
-            cx="100"
-            cy="100"
-            r="96"
-            fill="none"
-            stroke="rgba(255,255,255,0.025)"
-            strokeWidth="0.4"
-          />
-
-          {/* Label */}
+          <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth="0.4" />
           <circle cx="100" cy="100" r="26" fill={`url(#${labelId})`} />
-
-          {/* Cover art clipped to label circle */}
           {coverUrl && (
             <image
               href={coverUrl}
-              x="74"
-              y="74"
-              width="52"
-              height="52"
+              x="74" y="74" width="52" height="52"
               clipPath={`url(#${clipId})`}
               preserveAspectRatio="xMidYMid slice"
               style={{ opacity: 0.85 }}
             />
           )}
-
-          {/* Deck letter */}
           <text
-            x="100"
-            y={coverUrl ? "108" : "106"}
+            x="100" y={coverUrl ? "108" : "106"}
             textAnchor="middle"
             fontSize={coverUrl ? "10" : "16"}
             fontWeight="bold"
@@ -243,26 +255,15 @@ export function Turntable({
           >
             {deckId}
           </text>
-
-          {/* Center spindle hole */}
           <circle cx="100" cy="100" r="3.5" fill="#030303" />
         </g>
 
         {/* Tonearm (static) */}
-        <line
-          x1="182"
-          y1="22"
-          x2="148"
-          y2="82"
-          stroke="#666"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
+        <line x1="182" y1="22" x2="148" y2="82" stroke="#666" strokeWidth="2.5" strokeLinecap="round" />
         <circle cx="148" cy="84" r="5" fill="#777" />
         <circle cx="148" cy="84" r="2.5" fill={color} />
       </svg>
 
-      {/* Scratch glow ring when active */}
       {isDragging && (
         <div
           className="absolute inset-0 rounded-full pointer-events-none animate-pulse"
