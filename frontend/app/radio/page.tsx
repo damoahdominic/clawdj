@@ -22,7 +22,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import TuneIcon from "@mui/icons-material/Tune";
 import { DeckLayout, type DeckTrack } from "../../components/DeckLayout";
-import { EffectsPanel, type EffectDef } from "../../components/EffectsPanel";
+import type { EffectDef } from "../../components/EffectsPanel";
 import { workerSetInterval } from "../../lib/workerInterval";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
