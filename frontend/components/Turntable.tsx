@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import { Box } from "@mui/material";
 import { useScratch } from "../hooks/useScratch";
-import { useAudioEngine } from "../hooks/useAudioEngine";
+import { useAudioEngine, type AudioEngineApi } from "../hooks/useAudioEngine";
 
 export interface TurntableProps {
   deckId: "A" | "B";
@@ -14,13 +15,17 @@ export interface TurntableProps {
   bpm?: number;
   /** Expected track duration in seconds (used for physics before audio loads). */
   duration?: number;
-  accentColor?: "red" | "orange";
+  accentColor?: "red" | "redDark";
+  /** SVG viewport size in px; defaults to 200. */
+  size?: number;
   onScratchStart?: () => void;
   onScratchEnd?: () => void;
   /** Fires every RAF frame with the current playback position. */
   onTimeUpdate?: (secondsPlayed: number, duration: number) => void;
   /** Increment to trigger an auto-scratch effect (for crossfade transitions). */
   autoScratchTrigger?: number;
+  /** Parent captures the audio engine instance here for EQ/tempo/cue/loop access. */
+  engineRef?: React.MutableRefObject<AudioEngineApi | null>;
 }
 
 export function Turntable({
@@ -32,13 +37,24 @@ export function Turntable({
   bpm = 120,
   duration = 30,
   accentColor = "red",
+  size = 200,
   onScratchStart,
   onScratchEnd,
   onTimeUpdate,
   autoScratchTrigger = 0,
+  engineRef,
 }: TurntableProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const engine = useAudioEngine();
+
+  // Publish engine to parent exactly once (methods are stable via useCallback).
+  useEffect(() => {
+    if (engineRef) engineRef.current = engine;
+    return () => {
+      if (engineRef && engineRef.current === engine) engineRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Stable refs so closures in the RAF loop always see latest values
   const isPlayingRef = useRef(isPlaying);
@@ -53,6 +69,10 @@ export function Turntable({
 
   const autoScratchingRef = useRef(false);
   const prevAutoScratchTrigger = useRef(0);
+  const isDraggingRef = useRef(false);
+  /** True for the whole scratch lifetime: from onDragStart through the
+   *  post-release coast, until onCoastEnd fires. */
+  const isScratchingRef = useRef(false);
 
   // ── useScratch ─────────────────────────────────────────────────────────────
 
@@ -61,6 +81,7 @@ export function Turntable({
     {
       isActive: isPlaying,
       duration,
+      getCurrentTime: engine.getCurrentTime,
       onLoop: ({ playbackSpeed, isReversed, secondsPlayed }) => {
         // 1. Update SVG rotation directly (no React state, no re-render)
         const group = svgRef.current?.getElementById("rg_" + deckId);
@@ -69,20 +90,42 @@ export function Turntable({
           group.setAttribute("transform", `rotate(${deg}, 100, 100)`);
         }
 
-        // 2. Drive the audio engine
+        // 2. Drive the audio engine — use the scratch path for the full
+        //    drag + coast window so inertia stays authentic.
         if (isPlayingRef.current && audioLoadedRef.current && !autoScratchingRef.current) {
-          engine.updateSpeed(playbackSpeed, isReversed, secondsPlayed);
+          if (isScratchingRef.current) {
+            engine.updateScratch(playbackSpeed, isReversed, secondsPlayed);
+          } else {
+            engine.updateSpeed(playbackSpeed, isReversed, secondsPlayed);
+          }
         }
 
         // 3. Report position upstream
         const dur = trackDurationRef.current;
         onTimeUpdateRef.current?.(secondsPlayed, dur);
       },
-      onDragStart: () => onScratchStart?.(),
-      onDragEnd: (seconds) => {
-        onScratchEnd?.();
+      onDragStart: () => {
+        onScratchStart?.();
+        isDraggingRef.current = true;
+        isScratchingRef.current = true;
+        // Compute current seconds from the drag angle and enter scratch mode.
+        const maxAngle = Math.max(1, trackDurationRef.current) * 0.75 * Math.PI * 2;
+        const clamped = Math.max(0, Math.min(maxAngle, angleRef.current));
+        const seconds = maxAngle > 0 ? (clamped / maxAngle) * trackDurationRef.current : 0;
         if (isPlayingRef.current && audioLoadedRef.current) {
-          engine.play(seconds);
+          engine.beginScratch(seconds);
+        }
+      },
+      onDragEnd: () => {
+        // Stop tracking the pointer but leave scratch audio engaged — the
+        // coast phase below keeps feeding updateScratch until inertia dies.
+        onScratchEnd?.();
+        isDraggingRef.current = false;
+      },
+      onCoastEnd: (seconds) => {
+        isScratchingRef.current = false;
+        if (isPlayingRef.current && audioLoadedRef.current) {
+          engine.endScratch(seconds);
         }
       },
     },
@@ -94,13 +137,13 @@ export function Turntable({
     if (!audioUrl) return;
     audioLoadedRef.current = false;
     resetPosition();
-    engine.loadTrack(audioUrl).then(() => {
+    engine.loadTrack(audioUrl).then(async () => {
       const actualDur = engine.durationRef.current;
       if (actualDur > 0) trackDurationRef.current = actualDur;
       audioLoadedRef.current = true;
       if (isPlayingRef.current) {
-        engine.resume();
-        engine.play(0);
+        await engine.resume();
+        await engine.play(0);
       }
     }).catch(() => { /* handled in engine */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,9 +152,10 @@ export function Turntable({
   // ── Play / pause ───────────────────────────────────────────────────────────
 
   useEffect(() => {
-    engine.resume();
     if (isPlaying) {
-      if (audioLoadedRef.current) engine.play(0);
+      if (audioLoadedRef.current) {
+        engine.resume().then(() => engine.play(0));
+      }
       // If not loaded yet, loadTrack().then() handles it
     } else {
       engine.pause();
@@ -147,7 +191,7 @@ export function Turntable({
       const seconds = maxAngle > 0
         ? (Math.max(0, Math.min(maxAngle, angleRef.current)) / maxAngle) * trackDurationRef.current
         : 0;
-      engine.updateSpeed(Math.max(0.001, spd), false, seconds);
+      engine.updateSpeed(Math.max(0.0625, spd), false, seconds);
       if (step >= STEPS) {
         clearInterval(rampDown);
         // Step 2: brief reverse scratch (200ms)
@@ -164,16 +208,37 @@ export function Turntable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScratchTrigger]);
 
+  // ── Background-tab-safe time polling ──────────────────────────────────────
+  // RAF in useScratch stops firing when the tab is backgrounded, but <audio>
+  // keeps playing. Poll the engine's currentTime on an interval so the parent
+  // component's progress check still sees time advancing.
+  useEffect(() => {
+    const poll = () => {
+      if (!audioLoadedRef.current) return;
+      // During scratch (drag or coast) the RAF loop is authoritative — the
+      // poll would overwrite drag position with stale audioEl.currentTime.
+      if (isScratchingRef.current) return;
+      const t = engine.getCurrentTime();
+      const dur = engine.durationRef.current || trackDurationRef.current;
+      if (t > 0) onTimeUpdateRef.current?.(t, dur);
+    };
+    const id = setInterval(poll, 100);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Cleanup ────────────────────────────────────────────────────────────────
 
-  useEffect(() => () => engine.dispose(), [engine]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => engine.dispose(), []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const color = accentColor === "red" ? "#ef4444" : "#f97316";
-  const gradientEnd = accentColor === "red" ? "#7f1d1d" : "#7c2d12";
-  const gradientMid = accentColor === "red" ? "#991b1b" : "#9a3412";
-  const glowColor = accentColor === "red" ? "rgba(239,68,68,0.45)" : "rgba(249,115,22,0.45)";
+  const isBright = accentColor === "red";
+  const color = isBright ? "#ef4444" : "#b71c1c";
+  const gradientEnd = isBright ? "#7f1d1d" : "#4a0505";
+  const gradientMid = isBright ? "#991b1b" : "#660a0a";
+  const glowColor = isBright ? "rgba(239,68,68,0.45)" : "rgba(183,28,28,0.45)";
   const vinylId = `vinyl-${deckId}`;
   const labelId = `label-${deckId}`;
   const clipId = `lclip-${deckId}`;
@@ -182,16 +247,15 @@ export function Turntable({
   void bpm;
 
   return (
-    <div className="relative flex items-center justify-center">
+    <Box sx={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <svg
         ref={svgRef}
         viewBox="0 0 200 200"
-        width="200"
-        height="200"
-        className={`select-none ${
-          isPlaying ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
-        }`}
+        width={size}
+        height={size}
         style={{
+          userSelect: "none",
+          cursor: isPlaying ? (isDragging ? "grabbing" : "grab") : "default",
           filter: isDragging
             ? `drop-shadow(0 0 14px ${glowColor}) drop-shadow(0 0 28px ${glowColor})`
             : isPlaying
@@ -224,38 +288,49 @@ export function Turntable({
           <radialGradient id={labelId} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={gradientMid} />
             <stop offset="65%" stopColor={gradientEnd} />
-            <stop offset="100%" stopColor={accentColor === "red" ? "#3b0505" : "#3b1105"} />
+            <stop offset="100%" stopColor={isBright ? "#3b0505" : "#1f0202"} />
           </radialGradient>
           <clipPath id={clipId}>
-            <circle cx="100" cy="100" r="26" />
+            <circle cx="100" cy="100" r="72" />
           </clipPath>
         </defs>
 
         <g id={`rg_${deckId}`}>
           <circle cx="100" cy="100" r="96" fill={`url(#${vinylId})`} />
           <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth="0.4" />
-          <circle cx="100" cy="100" r="26" fill={`url(#${labelId})`} />
+          {!coverUrl && <circle cx="100" cy="100" r="26" fill={`url(#${labelId})`} />}
           {coverUrl && (
             <image
               href={coverUrl}
-              x="74" y="74" width="52" height="52"
+              x="28" y="28" width="144" height="144"
               clipPath={`url(#${clipId})`}
               preserveAspectRatio="xMidYMid slice"
-              style={{ opacity: 0.85 }}
+              style={{ opacity: 0.96 }}
             />
           )}
-          <text
-            x="100" y={coverUrl ? "108" : "106"}
-            textAnchor="middle"
-            fontSize={coverUrl ? "10" : "16"}
-            fontWeight="bold"
-            fill={coverUrl ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.85)"}
-            fontFamily="monospace"
-            style={{ userSelect: "none" }}
-          >
-            {deckId}
-          </text>
-          <circle cx="100" cy="100" r="3.5" fill="#030303" />
+          {coverUrl && (
+            <circle
+              cx="100" cy="100" r="72"
+              fill="none"
+              stroke={color}
+              strokeWidth="1.2"
+              opacity="0.5"
+            />
+          )}
+          {!coverUrl && (
+            <text
+              x="100" y="106"
+              textAnchor="middle"
+              fontSize="16"
+              fontWeight="bold"
+              fill="rgba(255,255,255,0.85)"
+              fontFamily="monospace"
+              style={{ userSelect: "none" }}
+            >
+              {deckId}
+            </text>
+          )}
+          {!coverUrl && <circle cx="100" cy="100" r="3.5" fill="#030303" />}
         </g>
 
         {/* Tonearm (static) */}
@@ -265,16 +340,23 @@ export function Turntable({
       </svg>
 
       {isDragging && (
-        <div
-          className="absolute inset-0 rounded-full pointer-events-none animate-pulse"
-          style={{
-            boxShadow: `0 0 0 2px ${color}88, 0 0 20px 4px ${color}44`,
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
             borderRadius: "50%",
-            width: 200,
-            height: 200,
+            width: size,
+            height: size,
+            boxShadow: `0 0 0 2px ${color}88, 0 0 20px 4px ${color}44`,
+            animation: "mui-pulse 1.5s ease-in-out infinite",
+            "@keyframes mui-pulse": {
+              "0%, 100%": { opacity: 1 },
+              "50%": { opacity: 0.5 },
+            },
           }}
         />
       )}
-    </div>
+    </Box>
   );
 }
