@@ -2,10 +2,37 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as THREE from "three";
+import {
+  Box,
+  Button,
+  Chip,
+  Container,
+  Drawer,
+  IconButton,
+  Link as MuiLink,
+  Slider,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { alpha, useTheme } from "@mui/material/styles";
+import SettingsIcon from "@mui/icons-material/Settings";
+import CloseIcon from "@mui/icons-material/Close";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import TuneIcon from "@mui/icons-material/Tune";
 import { DeckLayout, type DeckTrack } from "../../components/DeckLayout";
+import { EffectsPanel, type EffectDef } from "../../components/EffectsPanel";
+import { workerSetInterval } from "../../lib/workerInterval";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const FADE_OUT_MS = 4000;
+
+const EFFECTS: EffectDef[] = [
+  { name: "don", label: "Don", url: "/effects/don.mp3" },
+  { name: "gunshot", label: "Gunshot", url: "/effects/gunshot.mp3" },
+  { name: "scratch_that", label: "Scratch That", url: "/effects/scratch_that.mp3" },
+];
 
 interface PlaylistTrack {
   id: number;
@@ -16,6 +43,7 @@ interface PlaylistTrack {
   duration: number;
   preview: string;
   bpm: number;
+  audioUrl?: string | null;
 }
 
 // ============ FULL-SCREEN 3D LOBSTER BACKGROUND ============
@@ -57,10 +85,10 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       renderer.toneMappingExposure = 1.0;
       container.appendChild(renderer.domElement);
 
-      const ambient = new THREE.AmbientLight(0x332222, 1.0);
+      const ambient = new THREE.AmbientLight(0x221111, 1.0);
       scene.add(ambient);
 
-      const topSpot = new THREE.SpotLight(0xff4400, 4, 50, Math.PI / 4, 0.3);
+      const topSpot = new THREE.SpotLight(0xe53935, 4, 50, Math.PI / 4, 0.3);
       topSpot.position.set(0, 18, 0);
       scene.add(topSpot);
 
@@ -68,11 +96,11 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       redLight.position.set(-8, 5, -3);
       scene.add(redLight);
 
-      const orangeLight = new THREE.PointLight(0xff6600, 3, 30);
+      const orangeLight = new THREE.PointLight(0xab000d, 3, 30);
       orangeLight.position.set(8, 5, 3);
       scene.add(orangeLight);
 
-      const purpleLight = new THREE.PointLight(0x8833ff, 2, 25);
+      const purpleLight = new THREE.PointLight(0x660000, 2, 25);
       purpleLight.position.set(0, 4, -8);
       scene.add(purpleLight);
 
@@ -187,7 +215,7 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       };
       window.addEventListener("resize", onResize);
 
-      const laserColors = [0xff0022, 0xff4400, 0xff6600, 0xaa00ff, 0x00aaff, 0xff0066];
+      const laserColors = [0xff0022, 0xe53935, 0xab000d, 0xff6666, 0x880000, 0xff0066];
       const lasers: THREE.Mesh[] = [];
       for (let i = 0; i < 12; i++) {
         const geo = new THREE.CylinderGeometry(0.03, 0.03, 40, 4);
@@ -305,16 +333,23 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
 // ============ MAIN RADIO COMPONENT ============
 export default function Radio() {
   const [vibeQuery, setVibeQuery] = useState("");
+  const [detected, setDetected] = useState<{ type: string; label?: string | null; bpm_min?: number | null; bpm_max?: number | null } | null>(null);
   const [loading, setLoading] = useState(false);
   const [playlist, setPlaylist] = useState<PlaylistTrack[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [deckAProgress, setDeckAProgress] = useState(0);
+  const [deckBProgress, setDeckBProgress] = useState(0);
   const [switchPoint, setSwitchPoint] = useState(0);
   const [isCrossfading, setIsCrossfading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [infinityMode, setInfinityMode] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [autoEffects, setAutoEffects] = useState(true);
+  const [fullSongs, setFullSongs] = useState(true);
+  const [playingEffects, setPlayingEffects] = useState<Set<string>>(() => new Set());
+  const effectElsRef = useRef<Record<string, HTMLAudioElement>>({});
 
   const [crossfadeMs, setCrossfadeMs] = useState(3000);
   const [switchThreshold, setSwitchThreshold] = useState(70);
@@ -336,8 +371,8 @@ export default function Radio() {
   const [autoScratchB, setAutoScratchB] = useState(0);
 
   const activePlayerRef = useRef<"a" | "b">("a");
-  const crossfadeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const fadeOutTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const crossfadeTimerRef = useRef<(() => void) | null>(null);
+  const fadeOutTimerRef = useRef<(() => void) | null>(null);
   const isCrossfadingRef = useRef(false);
 
   // Time tracking refs updated by onTimeUpdate (avoids 60fps state updates)
@@ -357,6 +392,7 @@ export default function Radio() {
     cover: t.cover,
     bpm: t.bpm,
     album: t.album,
+    audioUrl: t.audioUrl || undefined,
     preview: t.preview,
     duration: t.duration,
   });
@@ -366,6 +402,59 @@ export default function Radio() {
     return Math.max(0.3, Math.min(0.95, base + (Math.random() * 0.1 - 0.05)));
   }, [switchThreshold]);
 
+  // Fire-and-forget FX overlay. Runs on an independent <audio> element so it
+  // doesn't touch the deck engines. Keeps a ref to the latest `autoEffects`
+  // value so the memoized crossfade callback picks up toggles live.
+  const autoEffectsRef = useRef(autoEffects);
+  useEffect(() => { autoEffectsRef.current = autoEffects; }, [autoEffects]);
+
+  const playEffect = useCallback((name: string) => {
+    const eff = EFFECTS.find((e) => e.name === name);
+    if (!eff) return;
+
+    // If this effect is already playing, hard-stop the previous instance so
+    // rapid clicks restart cleanly instead of stacking.
+    const existing = effectElsRef.current[name];
+    if (existing) {
+      try {
+        existing.pause();
+        existing.src = "";
+      } catch { /* noop */ }
+      delete effectElsRef.current[name];
+    }
+
+    setPlayingEffects((prev) => {
+      const next = new Set(prev);
+      next.add(name);
+      return next;
+    });
+    const clearPlaying = () => {
+      if (effectElsRef.current[name]) delete effectElsRef.current[name];
+      setPlayingEffects((prev) => {
+        if (!prev.has(name)) return prev;
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+    };
+    try {
+      const el = new Audio(eff.url);
+      el.volume = 0.85;
+      effectElsRef.current[name] = el;
+      el.addEventListener("ended", clearPlaying, { once: true });
+      el.addEventListener("error", clearPlaying, { once: true });
+      el.play().catch(clearPlaying);
+    } catch {
+      clearPlaying();
+    }
+  }, []);
+
+  const playRandomEffect = useCallback(() => {
+    if (!autoEffectsRef.current) return;
+    const eff = EFFECTS[Math.floor(Math.random() * EFFECTS.length)];
+    playEffect(eff.name);
+  }, [playEffect]);
+
   // ── Volume fade out (end of playlist) ─────────────────────────────────────
 
   const doFadeOut = useCallback(() => {
@@ -373,19 +462,19 @@ export default function Radio() {
     const interval = FADE_OUT_MS / steps;
     let step = 0;
     const isA = activePlayerRef.current === "a";
-    fadeOutTimerRef.current = setInterval(() => {
+    fadeOutTimerRef.current = workerSetInterval(interval, () => {
       step++;
       const ratio = step / steps;
       if (isA) setDeckAVolume(Math.max(0, 1 - ratio));
       else setDeckBVolume(Math.max(0, 1 - ratio));
       if (step >= steps) {
-        if (fadeOutTimerRef.current) clearInterval(fadeOutTimerRef.current);
+        fadeOutTimerRef.current?.();
         fadeOutTimerRef.current = null;
         setIsPlaying(false);
         if (isA) setDeckAVolume(1);
         else setDeckBVolume(1);
       }
-    }, interval);
+    });
   }, []);
 
   // ── Start initial playback (deck A) ───────────────────────────────────────
@@ -393,7 +482,7 @@ export default function Radio() {
   const startPlayback = useCallback((index: number, tracks?: PlaylistTrack[]) => {
     const list = tracks || playlist;
     if (index >= list.length) return;
-    if (fadeOutTimerRef.current) { clearInterval(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
+    if (fadeOutTimerRef.current) { fadeOutTimerRef.current(); fadeOutTimerRef.current = null; }
     setCurrentIndex(index);
     setSwitchPoint(getRandomSwitchPoint());
     setIsPlaying(true);
@@ -411,8 +500,10 @@ export default function Radio() {
   const loadPlaylist = useCallback(async () => {
     if (!vibeQuery.trim()) return;
     setLoading(true);
-    if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
-    if (fadeOutTimerRef.current) clearInterval(fadeOutTimerRef.current);
+    crossfadeTimerRef.current?.();
+    crossfadeTimerRef.current = null;
+    fadeOutTimerRef.current?.();
+    fadeOutTimerRef.current = null;
     setIsCrossfading(false);
     isCrossfadingRef.current = false;
     setIsPlaying(false);
@@ -424,6 +515,7 @@ export default function Radio() {
       const bpmParam = (minBpm > 0 || maxBpm < 200) ? `&min_bpm=${minBpm}&max_bpm=${maxBpm}` : "";
       const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(vibeQuery)}&count=15${bpmParam}`);
       const data = await res.json();
+      setDetected(data.detected ?? null);
       if (data.tracks?.length > 0) {
         setPlaylist(data.tracks);
         setCurrentIndex(0);
@@ -453,6 +545,75 @@ export default function Radio() {
     setLoadingMore(false);
   }, [loadingMore, vibeQuery, playlist, minBpm, maxBpm]);
 
+  // ── Background full-length batch download ──────────────────────────────────
+  // A single batch_id lives for the session. Every time the playlist grows
+  // (initial load or infinity-mode appends), we POST the full list to
+  // /api/download-batch with the same batch_id. The backend deduplicates —
+  // tracks already queued/done are skipped, new ones are appended to the
+  // persistent 4-worker queue. We poll every 3s to pick up finished downloads.
+  const batchIdRef = useRef<string>(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastEnqueuedCountRef = useRef(0);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }, []);
+
+  const ensurePolling = useCallback(() => {
+    if (pollRef.current) return; // already polling
+    const bid = batchIdRef.current;
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/download-status?batch_id=${bid}`);
+        const data = await res.json();
+        const ready: Record<string, string | null> = data.ready || {};
+        const entries = Object.entries(ready);
+        if (entries.length === 0) return;
+
+        setPlaylist((prev) => {
+          let changed = false;
+          const next = [...prev];
+          for (const [idxStr, url] of entries) {
+            const idx = Number(idxStr);
+            if (url && next[idx] && !next[idx].audioUrl) {
+              next[idx] = { ...next[idx], audioUrl: url };
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+
+        // Stop polling when every enqueued track has a result AND the server
+        // queue is drained.
+        if (entries.length >= lastEnqueuedCountRef.current && (data.queue_size ?? 0) === 0) {
+          stopPolling();
+        }
+      } catch { /* noop */ }
+    }, 3000);
+  }, [stopPolling]);
+
+  // Enqueue whenever playlist grows (or fullSongs flips on).
+  useEffect(() => {
+    if (!fullSongs || playlist.length === 0) { stopPolling(); return; }
+
+    const bid = batchIdRef.current;
+    lastEnqueuedCountRef.current = playlist.length;
+
+    // POST full list — backend skips already-queued indices via _dl_seen.
+    fetch(`${API_URL}/api/download-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        batch_id: bid,
+        tracks: playlist.map((t) => ({ artist: t.artist, title: t.title })),
+      }),
+    }).catch(() => { /* noop */ });
+
+    ensurePolling();
+    return stopPolling;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullSongs, playlist.length]);
+
   // ── Crossfade with auto-scratch ────────────────────────────────────────────
 
   const doCrossfade = useCallback((nextIndex: number) => {
@@ -460,6 +621,9 @@ export default function Radio() {
     if (nextIndex >= playlist.length) return;
     isCrossfadingRef.current = true;
     setIsCrossfading(true);
+
+    // FX overlay on every transition (if Auto Effects is on)
+    playRandomEffect();
 
     const currentDeck = activePlayerRef.current;
     const nextDeck = currentDeck === "a" ? "b" : "a";
@@ -478,47 +642,50 @@ export default function Radio() {
       setDeckAVolume(0);
     }
 
-    // Brief delay for auto-scratch effect, then start volume crossfade
-    setTimeout(() => {
-      const steps = 30;
-      const interval = crossfadeMs / steps;
-      const startCross = currentDeck === "a" ? 0 : 1;
-      const endCross = currentDeck === "a" ? 1 : 0;
-      let step = 0;
+    // Start volume crossfade immediately so the incoming deck ramps up
+    // *while* the outgoing deck does its auto-scratch — gives real overlap
+    // with equal-power curves, not a slow-down-then-pick-up.
+    const steps = 60;
+    const interval = crossfadeMs / steps;
+    const startCross = currentDeck === "a" ? 0 : 1;
+    const endCross = currentDeck === "a" ? 1 : 0;
+    let step = 0;
 
-      crossfadeTimerRef.current = setInterval(() => {
-        step++;
-        const ratio = step / steps;
-        if (currentDeck === "a") {
-          setDeckAVolume(Math.max(0, 1 - ratio));
-          setDeckBVolume(Math.min(1, ratio));
-        } else {
-          setDeckBVolume(Math.max(0, 1 - ratio));
-          setDeckAVolume(Math.min(1, ratio));
-        }
-        setCrossfaderValue(startCross + (endCross - startCross) * ratio);
+    crossfadeTimerRef.current = workerSetInterval(interval, () => {
+      step++;
+      const ratio = step / steps;
+      // Equal-power crossfade: keeps perceived loudness constant mid-fade
+      const outVol = Math.cos(ratio * Math.PI / 2);
+      const inVol = Math.sin(ratio * Math.PI / 2);
+      if (currentDeck === "a") {
+        setDeckAVolume(outVol);
+        setDeckBVolume(inVol);
+      } else {
+        setDeckBVolume(outVol);
+        setDeckAVolume(inVol);
+      }
+      setCrossfaderValue(startCross + (endCross - startCross) * ratio);
 
-        if (step >= steps) {
-          if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
-          crossfadeTimerRef.current = null;
-          activePlayerRef.current = nextDeck;
-          setActiveDeck(nextDeck);
-          setCrossfaderValue(endCross);
-          if (currentDeck === "a") { setDeckAVolume(0); setDeckBVolume(1); }
-          else { setDeckBVolume(0); setDeckAVolume(1); }
-          setCurrentIndex(nextIndex);
-          setSwitchPoint(getRandomSwitchPoint());
-          setIsCrossfading(false);
-          isCrossfadingRef.current = false;
-        }
-      }, interval);
-    }, 700); // 700ms = 500ms ramp-down + 200ms reverse
-  }, [playlist, crossfadeMs, getRandomSwitchPoint]);
+      if (step >= steps) {
+        crossfadeTimerRef.current?.();
+        crossfadeTimerRef.current = null;
+        activePlayerRef.current = nextDeck;
+        setActiveDeck(nextDeck);
+        setCrossfaderValue(endCross);
+        if (currentDeck === "a") { setDeckAVolume(0); setDeckBVolume(1); }
+        else { setDeckBVolume(0); setDeckAVolume(1); }
+        setCurrentIndex(nextIndex);
+        setSwitchPoint(getRandomSwitchPoint());
+        setIsCrossfading(false);
+        isCrossfadingRef.current = false;
+      }
+    });
+  }, [playlist, crossfadeMs, getRandomSwitchPoint, playRandomEffect]);
 
   // Manual crossfader override
   const handleCrossfaderChange = useCallback((value: number) => {
     if (isCrossfadingRef.current && crossfadeTimerRef.current) {
-      clearInterval(crossfadeTimerRef.current);
+      crossfadeTimerRef.current();
       crossfadeTimerRef.current = null;
       setIsCrossfading(false);
       isCrossfadingRef.current = false;
@@ -554,6 +721,13 @@ export default function Radio() {
       const isA = activePlayerRef.current === "a";
       const seconds = isA ? deckASecondsRef.current : deckBSecondsRef.current;
       const dur = isA ? deckADurationRef.current : deckBDurationRef.current;
+
+      // Per-deck waveform progress (0–1) — independent of active deck
+      const durA = deckADurationRef.current || 1;
+      const durB = deckBDurationRef.current || 1;
+      setDeckAProgress(Math.max(0, Math.min(1, deckASecondsRef.current / durA)));
+      setDeckBProgress(Math.max(0, Math.min(1, deckBSecondsRef.current / durB)));
+
       if (!dur) return;
       const pct = seconds / dur;
       setProgress(pct * 100);
@@ -563,7 +737,11 @@ export default function Radio() {
         if (playlistProgress >= 0.7) loadMoreTracks();
       }
 
-      if (pct >= switchPoint && !isCrossfadingRef.current) {
+      // Pre-roll the next track: fire the crossfade at 90% of switchPoint so
+      // the incoming song fades in *against* the current one rather than
+      // taking over at the handoff instant.
+      const triggerAt = switchPoint * 0.9;
+      if (pct >= triggerAt && !isCrossfadingRef.current) {
         const isLastTrack = currentIndex >= playlist.length - 1;
         if (!isLastTrack || infinityMode) {
           if (currentIndex + 1 < playlist.length) doCrossfade(currentIndex + 1);
@@ -573,8 +751,8 @@ export default function Radio() {
         }
       }
     };
-    const timer = setInterval(checkProgress, 100);
-    return () => clearInterval(timer);
+    const dispose = workerSetInterval(60, checkProgress);
+    return dispose;
   }, [switchPoint, currentIndex, playlist.length, isCrossfading, doCrossfade, doFadeOut, infinityMode, loadingMore, loadMoreTracks]);
 
   // ── Transport controls ─────────────────────────────────────────────────────
@@ -582,7 +760,7 @@ export default function Radio() {
   const togglePlay = () => {
     if (playlist.length === 0) return;
     if (isPlaying) {
-      if (fadeOutTimerRef.current) { clearInterval(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
+      if (fadeOutTimerRef.current) { fadeOutTimerRef.current(); fadeOutTimerRef.current = null; }
       setIsPlaying(false);
     } else {
       if (currentIndex < 0) startPlayback(0);
@@ -591,8 +769,8 @@ export default function Radio() {
   };
 
   const skipToTrack = (index: number) => {
-    if (crossfadeTimerRef.current) { clearInterval(crossfadeTimerRef.current); crossfadeTimerRef.current = null; }
-    if (fadeOutTimerRef.current) { clearInterval(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
+    if (crossfadeTimerRef.current) { crossfadeTimerRef.current(); crossfadeTimerRef.current = null; }
+    if (fadeOutTimerRef.current) { fadeOutTimerRef.current(); fadeOutTimerRef.current = null; }
     setIsCrossfading(false);
     isCrossfadingRef.current = false;
     activePlayerRef.current = "a";
@@ -615,249 +793,688 @@ export default function Radio() {
   const currentTrack = currentIndex >= 0 ? playlist[currentIndex] : null;
   const currentBpm = currentTrack?.bpm || 0;
 
-  // ---- Session persistence ----
-  useEffect(() => {
-    const restore = async () => {
-      let session: { vibeQuery?: string; playlist?: PlaylistTrack[]; currentIndex?: number } | null = null;
-      try {
-        const res = await fetch(`${API_URL}/api/session`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.playlist?.length > 0) session = data;
-        }
-      } catch {}
-      if (!session) {
-        try {
-          const raw = localStorage.getItem("clawdj_session");
-          if (raw) session = JSON.parse(raw);
-        } catch {}
-      }
-      if (session?.vibeQuery) setVibeQuery(session.vibeQuery);
-      if (session?.playlist && session.playlist.length > 0) {
-        setPlaylist(session.playlist);
-        const idx = Math.max(0, Math.min(session.currentIndex || 0, session.playlist.length - 1));
-        setCurrentIndex(idx);
-        setDeckATrack(toDeckTrack(session.playlist[idx]));
-      }
-    };
-    restore();
-  }, []);
+  return <RadioView
+    vibeQuery={vibeQuery} setVibeQuery={setVibeQuery}
+    detected={detected}
+    loading={loading} loadPlaylist={loadPlaylist}
+    playlist={playlist} currentIndex={currentIndex} isPlaying={isPlaying}
+    progress={progress} switchPoint={switchPoint} setSwitchPoint={setSwitchPoint}
+    deckAProgress={deckAProgress} deckBProgress={deckBProgress}
+    isCrossfading={isCrossfading}
+    showSettings={showSettings} setShowSettings={setShowSettings}
+    infinityMode={infinityMode} setInfinityMode={setInfinityMode}
+    autoEffects={autoEffects} setAutoEffects={setAutoEffects}
+    fullSongs={fullSongs} setFullSongs={setFullSongs}
+    playingEffects={playingEffects} playEffect={playEffect}
+    loadingMore={loadingMore}
+    crossfadeMs={crossfadeMs} setCrossfadeMs={setCrossfadeMs}
+    switchThreshold={switchThreshold} setSwitchThreshold={setSwitchThreshold}
+    minBpm={minBpm} setMinBpm={setMinBpm}
+    maxBpm={maxBpm} setMaxBpm={setMaxBpm}
+    deckATrack={deckATrack} deckBTrack={deckBTrack}
+    isDeckAPlaying={isDeckAPlaying} isDeckBPlaying={isDeckBPlaying}
+    scratchActiveA={scratchActiveA} scratchActiveB={scratchActiveB}
+    deckAVolume={deckAVolume} deckBVolume={deckBVolume}
+    autoScratchA={autoScratchA} autoScratchB={autoScratchB}
+    handleDeckAScratchStart={handleDeckAScratchStart} handleDeckAScratchEnd={handleDeckAScratchEnd}
+    handleDeckBScratchStart={handleDeckBScratchStart} handleDeckBScratchEnd={handleDeckBScratchEnd}
+    handleDeckATimeUpdate={handleDeckATimeUpdate} handleDeckBTimeUpdate={handleDeckBTimeUpdate}
+    togglePlay={togglePlay} skipToTrack={skipToTrack} skipPrev={skipPrev} skipNext={skipNext}
+    crossfaderValue={crossfaderValue} handleCrossfaderChange={handleCrossfaderChange}
+    currentBpm={currentBpm}
+  />;
+}
 
-  useEffect(() => {
-    if (playlist.length === 0) return;
-    const timer = setTimeout(() => {
-      const sessionData = { vibeQuery, playlist, currentIndex };
-      try { localStorage.setItem("clawdj_session", JSON.stringify(sessionData)); } catch {}
-      fetch(`${API_URL}/api/session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vibe_query: vibeQuery, playlist, current_index: currentIndex, playback_position: 0 }),
-      }).catch(() => {});
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [vibeQuery, playlist, currentIndex]);
+// ============ MUI VIEW ============
+interface RadioViewProps {
+  vibeQuery: string; setVibeQuery: (v: string) => void;
+  detected: { type: string; label?: string | null; bpm_min?: number | null; bpm_max?: number | null } | null;
+  loading: boolean; loadPlaylist: () => void;
+  playlist: PlaylistTrack[]; currentIndex: number; isPlaying: boolean;
+  progress: number; switchPoint: number; setSwitchPoint: (v: number) => void;
+  deckAProgress: number; deckBProgress: number;
+  isCrossfading: boolean;
+  showSettings: boolean; setShowSettings: (v: boolean) => void;
+  infinityMode: boolean; setInfinityMode: (v: boolean) => void;
+  autoEffects: boolean; setAutoEffects: (v: boolean) => void;
+  fullSongs: boolean; setFullSongs: (v: boolean) => void;
+  playingEffects: Set<string>;
+  playEffect: (name: string) => void;
+  loadingMore: boolean;
+  crossfadeMs: number; setCrossfadeMs: (v: number) => void;
+  switchThreshold: number; setSwitchThreshold: (v: number) => void;
+  minBpm: number; setMinBpm: (v: number) => void;
+  maxBpm: number; setMaxBpm: (v: number) => void;
+  deckATrack: DeckTrack | null; deckBTrack: DeckTrack | null;
+  isDeckAPlaying: boolean; isDeckBPlaying: boolean;
+  scratchActiveA: boolean; scratchActiveB: boolean;
+  deckAVolume: number; deckBVolume: number;
+  autoScratchA: number; autoScratchB: number;
+  handleDeckAScratchStart: () => void; handleDeckAScratchEnd: () => void;
+  handleDeckBScratchStart: () => void; handleDeckBScratchEnd: () => void;
+  handleDeckATimeUpdate: (s: number, d: number) => void;
+  handleDeckBTimeUpdate: (s: number, d: number) => void;
+  togglePlay: () => void; skipToTrack: (i: number) => void;
+  skipPrev: () => void; skipNext: () => void;
+  crossfaderValue: number; handleCrossfaderChange: (v: number) => void;
+  currentBpm: number;
+}
+
+function RadioView(props: RadioViewProps) {
+  const theme = useTheme();
+  const red = theme.palette.primary.main;
+  const redLight = theme.palette.primary.light;
+  const {
+    vibeQuery, setVibeQuery, detected, loading, loadPlaylist,
+    playlist, currentIndex, isPlaying, progress, switchPoint, isCrossfading,
+    showSettings, setShowSettings, infinityMode, setInfinityMode,
+    autoEffects, setAutoEffects, fullSongs, setFullSongs, playingEffects, playEffect, loadingMore,
+    crossfadeMs, setCrossfadeMs, switchThreshold, setSwitchThreshold,
+    minBpm, setMinBpm, maxBpm, setMaxBpm,
+    deckATrack, deckBTrack, isDeckAPlaying, isDeckBPlaying,
+    scratchActiveA, scratchActiveB, deckAVolume, deckBVolume,
+    autoScratchA, autoScratchB,
+    handleDeckAScratchStart, handleDeckAScratchEnd,
+    handleDeckBScratchStart, handleDeckBScratchEnd,
+    handleDeckATimeUpdate, handleDeckBTimeUpdate,
+    togglePlay, skipToTrack, skipPrev, skipNext,
+    crossfaderValue, handleCrossfaderChange, currentBpm,
+  } = props;
 
   return (
-    <main className="min-h-screen text-white relative overflow-hidden">
-      {/* Full-screen 3D lobster background */}
+    <Box
+      component="main"
+      sx={{
+        minHeight: "100vh",
+        color: "text.primary",
+        position: "relative",
+        overflow: "hidden",
+        bgcolor: "background.default",
+      }}
+    >
       <LobsterBackground isPlaying={isPlaying} bpm={currentBpm} />
 
-      {/* Dark overlay */}
-      <div className="fixed inset-0 bg-black/20" style={{ zIndex: 1 }} />
+      <Box sx={{ position: "fixed", inset: 0, bgcolor: alpha("#000", 0.25), zIndex: 1, pointerEvents: "none" }} />
 
-      {/* Settings Sidebar */}
-      {showSettings && <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowSettings(false)} />}
-      <div className={`fixed top-0 right-0 h-full bg-gray-900/98 backdrop-blur-md border-l border-red-900/40 z-50 transition-transform duration-300 w-80 ${showSettings ? "translate-x-0" : "translate-x-full"}`}>
-        <div className="p-6 space-y-6 h-full overflow-y-auto">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent">DJ Settings</h2>
-            <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300">Crossfade Duration</label>
-            <input type="range" min={500} max={8000} step={500} value={crossfadeMs} onChange={e => setCrossfadeMs(Number(e.target.value))} className="w-full h-2 rounded-full appearance-none bg-gray-700 accent-orange-500" />
-            <div className="flex justify-between text-xs"><span className="text-gray-500">0.5s</span><span className="text-orange-400 font-mono font-bold">{(crossfadeMs / 1000).toFixed(1)}s</span><span className="text-gray-500">8s</span></div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300">Switch Threshold</label>
-            <p className="text-xs text-gray-500">How far into the track before crossfading</p>
-            <input type="range" min={30} max={95} step={5} value={switchThreshold} onChange={e => setSwitchThreshold(Number(e.target.value))} className="w-full h-2 rounded-full appearance-none bg-gray-700 accent-orange-500" />
-            <div className="flex justify-between text-xs"><span className="text-gray-500">30%</span><span className="text-orange-400 font-mono font-bold">{switchThreshold}%</span><span className="text-gray-500">95%</span></div>
-          </div>
-          <div className="border-t border-gray-700/50 pt-4"><h3 className="text-sm font-medium text-gray-300 mb-3">BPM Range</h3></div>
-          <div className="space-y-2">
-            <label className="text-sm text-gray-400">Minimum BPM</label>
-            <input type="range" min={0} max={200} step={5} value={minBpm} onChange={e => setMinBpm(Number(e.target.value))} className="w-full h-2 rounded-full appearance-none bg-gray-700 accent-red-500" />
-            <div className="text-xs text-red-400 font-mono">{minBpm === 0 ? "No minimum" : `${minBpm} BPM`}</div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-gray-400">Maximum BPM</label>
-            <input type="range" min={60} max={200} step={5} value={maxBpm} onChange={e => setMaxBpm(Number(e.target.value))} className="w-full h-2 rounded-full appearance-none bg-gray-700 accent-red-500" />
-            <div className="text-xs text-red-400 font-mono">{maxBpm >= 200 ? "No maximum" : `${maxBpm} BPM`}</div>
-          </div>
-          <div className="border-t border-gray-700/50 pt-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-sm font-medium text-gray-300">Infinity Mode</label>
-                <p className="text-xs text-gray-500 mt-0.5">Auto-loads new tracks so it never ends</p>
-              </div>
-              <button
-                onClick={() => setInfinityMode(!infinityMode)}
-                className={`w-12 h-6 rounded-full transition-colors relative ${infinityMode ? "bg-orange-500" : "bg-gray-600"}`}
-              >
-                <div className={`w-5 h-5 rounded-full bg-white shadow-md absolute top-0.5 transition-transform ${infinityMode ? "translate-x-6" : "translate-x-0.5"}`} />
-              </button>
-            </div>
-          </div>
-          <div className="border-t border-gray-700/50 pt-4 space-y-2">
-            <p className="text-xs text-gray-500">
+      <Drawer
+        anchor="right"
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        PaperProps={{
+          sx: {
+            width: 340,
+            bgcolor: alpha("#0e0e10", 0.98),
+            borderLeft: `1px solid ${alpha(red, 0.35)}`,
+            backgroundImage: "none",
+          },
+        }}
+      >
+        <Stack spacing={3} sx={{ p: 3, height: "100%", overflowY: "auto" }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 800,
+                background: `linear-gradient(90deg, ${redLight}, ${red})`,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              DJ Settings
+            </Typography>
+            <IconButton onClick={() => setShowSettings(false)} sx={{ color: "text.secondary" }}>
+              <CloseIcon />
+            </IconButton>
+          </Stack>
+
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>Crossfade Duration</Typography>
+            <Slider
+              value={crossfadeMs}
+              min={500}
+              max={8000}
+              step={500}
+              onChange={(_, v) => setCrossfadeMs(v as number)}
+              sx={{ color: "primary.main" }}
+            />
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>0.5s</Typography>
+              <Typography variant="caption" sx={{ color: "primary.light", fontFamily: "monospace", fontWeight: 700 }}>
+                {(crossfadeMs / 1000).toFixed(1)}s
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>8s</Typography>
+            </Stack>
+          </Box>
+
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>Switch Threshold</Typography>
+            <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mb: 1 }}>
+              How far into the track before crossfading
+            </Typography>
+            <Slider
+              value={switchThreshold}
+              min={30}
+              max={95}
+              step={5}
+              onChange={(_, v) => setSwitchThreshold(v as number)}
+              sx={{ color: "primary.main" }}
+            />
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>30%</Typography>
+              <Typography variant="caption" sx={{ color: "primary.light", fontFamily: "monospace", fontWeight: 700 }}>
+                {switchThreshold}%
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>95%</Typography>
+            </Stack>
+          </Box>
+
+          <Box sx={{ borderTop: `1px solid ${alpha(red, 0.2)}`, pt: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>BPM Range</Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 0.5 }}>
+              Minimum BPM
+            </Typography>
+            <Slider
+              value={minBpm}
+              min={0}
+              max={200}
+              step={5}
+              onChange={(_, v) => setMinBpm(v as number)}
+              sx={{ color: "primary.dark" }}
+            />
+            <Typography variant="caption" sx={{ color: "primary.light", fontFamily: "monospace" }}>
+              {minBpm === 0 ? "No minimum" : `${minBpm} BPM`}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 2, mb: 0.5 }}>
+              Maximum BPM
+            </Typography>
+            <Slider
+              value={maxBpm}
+              min={60}
+              max={200}
+              step={5}
+              onChange={(_, v) => setMaxBpm(v as number)}
+              sx={{ color: "primary.dark" }}
+            />
+            <Typography variant="caption" sx={{ color: "primary.light", fontFamily: "monospace" }}>
+              {maxBpm >= 200 ? "No maximum" : `${maxBpm} BPM`}
+            </Typography>
+          </Box>
+
+          <Box sx={{ borderTop: `1px solid ${alpha(red, 0.2)}`, pt: 2 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>Infinity Mode</Typography>
+                <Typography variant="caption" sx={{ color: "text.disabled" }}>
+                  Auto-loads new tracks so it never ends
+                </Typography>
+              </Box>
+              <Switch
+                checked={infinityMode}
+                onChange={(_, v) => setInfinityMode(v)}
+                color="primary"
+              />
+            </Stack>
+          </Box>
+
+          <Box sx={{ borderTop: `1px solid ${alpha(red, 0.2)}`, pt: 2 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>Full Songs</Typography>
+                <Typography variant="caption" sx={{ color: "text.disabled" }}>
+                  Download full-length via YouTube (AnySong)
+                </Typography>
+              </Box>
+              <Switch
+                checked={fullSongs}
+                onChange={(_, v) => setFullSongs(v)}
+                color="primary"
+              />
+            </Stack>
+          </Box>
+
+          <Box sx={{ borderTop: `1px solid ${alpha(red, 0.2)}`, pt: 2 }}>
+            <Typography variant="caption" sx={{ color: "text.disabled" }}>
               Drag each vinyl record to scratch it while playing. The crossfader blends between Deck A and Deck B.
-            </p>
-          </div>
-          <div className="border-t border-gray-700/50 pt-4 space-y-3">
-            <h3 className="text-sm font-medium text-gray-300">Open Source</h3>
-            <a href="https://github.com/damoahdominic/clawdj" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-xl hover:bg-gray-800 transition-colors group">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-600 to-orange-500 flex items-center justify-center text-sm font-bold">C</div>
-              <div><div className="text-sm font-medium text-gray-200 group-hover:text-orange-300">ClawDJ</div><div className="text-xs text-gray-500">AI-powered DJ mixing &amp; radio</div></div>
-            </a>
-            <a href="https://github.com/damoahdominic/anysong" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-xl hover:bg-gray-800 transition-colors group">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-yellow-500 flex items-center justify-center text-sm font-bold">A</div>
-              <div><div className="text-sm font-medium text-gray-200 group-hover:text-orange-300">AnySong</div><div className="text-xs text-gray-500">Universal music search API</div></div>
-            </a>
-          </div>
-        </div>
-      </div>
+            </Typography>
+          </Box>
 
-      {/* Main Content */}
-      <div className="relative z-10 max-w-4xl mx-auto p-4 pt-8 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <a href="/" className="text-gray-400 hover:text-orange-400 transition-colors text-sm">&larr; Home</a>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 bg-clip-text text-transparent">ClawDJ Radio</h1>
-          <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-orange-400 transition-colors text-xl" title="Settings">⚙</button>
-        </div>
-
-        {/* Search */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={vibeQuery}
-            onChange={e => setVibeQuery(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && loadPlaylist()}
-            placeholder="Describe a vibe... hip hop 2000s, chill R&B, afrobeats..."
-            className="flex-1 px-4 py-3 bg-gray-900/80 backdrop-blur-sm border border-red-900/30 rounded-xl text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500/30"
-          />
-          <button
-            onClick={loadPlaylist}
-            disabled={loading || !vibeQuery.trim()}
-            className="px-6 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl font-bold hover:from-red-500 hover:to-orange-400 disabled:opacity-50 transition-all shadow-lg shadow-red-900/30"
-          >
-            {loading ? "..." : "Go"}
-          </button>
-        </div>
-
-        {/* Dual Deck Layout */}
-        {(deckATrack || deckBTrack || playlist.length > 0) && (
-          <DeckLayout
-            deckA={{
-              track: deckATrack,
-              isPlaying: isDeckAPlaying,
-              isScratchActive: scratchActiveA,
-              volume: deckAVolume,
-              autoScratchTrigger: autoScratchA,
-              onScratchStart: handleDeckAScratchStart,
-              onScratchEnd: handleDeckAScratchEnd,
-              onPlayPause: togglePlay,
-              onTimeUpdate: handleDeckATimeUpdate,
-            }}
-            deckB={{
-              track: deckBTrack,
-              isPlaying: isDeckBPlaying,
-              isScratchActive: scratchActiveB,
-              volume: deckBVolume,
-              autoScratchTrigger: autoScratchB,
-              onScratchStart: handleDeckBScratchStart,
-              onScratchEnd: handleDeckBScratchEnd,
-              onPlayPause: togglePlay,
-              onTimeUpdate: handleDeckBTimeUpdate,
-            }}
-            crossfaderValue={crossfaderValue}
-            onCrossfaderChange={handleCrossfaderChange}
-            onSkipPrev={skipPrev}
-            onSkipNext={skipNext}
-            canSkipPrev={currentIndex > 0}
-            canSkipNext={currentIndex < playlist.length - 1}
-            isCrossfading={isCrossfading}
-            currentIndex={currentIndex}
-            playlistLength={playlist.length}
-            progress={progress}
-            switchPoint={switchPoint}
-            crossfadeMs={crossfadeMs}
-          />
-        )}
-
-        {/* Playlist */}
-        {playlist.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-sm text-gray-400">
-                Up next &middot; {playlist.length} tracks
-                {infinityMode && <span className="text-orange-400 ml-1">&middot; ∞</span>}
-                {loadingMore && <span className="text-orange-300 ml-1 animate-pulse text-xs">loading more...</span>}
-              </span>
-              <span className="text-xs text-gray-600">{(crossfadeMs / 1000).toFixed(1)}s crossfade</span>
-            </div>
-            <div className="bg-gray-900/80 backdrop-blur-sm rounded-xl overflow-hidden divide-y divide-gray-800/30">
-              {playlist.map((track, i) => (
-                <button
-                  key={`${track.id}-${i}`}
-                  onClick={() => skipToTrack(i)}
-                  className={`w-full flex items-center gap-3 p-3.5 text-left transition-all ${
-                    i === currentIndex
-                      ? "bg-gradient-to-r from-red-900/40 to-orange-900/20 border-l-2 border-orange-500"
-                      : i < currentIndex
-                      ? "opacity-40 hover:opacity-70"
-                      : "hover:bg-gray-800/40"
-                  }`}
+          <Box sx={{ borderTop: `1px solid ${alpha(red, 0.2)}`, pt: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1.5 }}>Open Source</Typography>
+            <Stack spacing={1}>
+              {[
+                { href: "https://github.com/damoahdominic/clawdj", letter: "C", title: "ClawDJ", sub: "AI-powered DJ mixing & radio" },
+                { href: "https://github.com/damoahdominic/anysong", letter: "A", title: "AnySong", sub: "Universal music search API" },
+              ].map(link => (
+                <MuiLink
+                  key={link.href}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  underline="none"
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.5,
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: alpha("#000", 0.4),
+                    border: `1px solid ${alpha(red, 0.15)}`,
+                    transition: "all 0.15s",
+                    "&:hover": { bgcolor: alpha(red, 0.12), borderColor: alpha(red, 0.4) },
+                  }}
                 >
-                  <span className={`w-6 text-right text-sm ${i === currentIndex ? "text-orange-400 font-bold" : "text-gray-600"}`}>
-                    {i === currentIndex && isPlaying ? "~" : i + 1}
-                  </span>
-                  {track.cover && <img src={track.cover} alt="" className="w-10 h-10 rounded shadow-sm" />}
-                  <div className="flex-1 min-w-0">
-                    <div className={`font-medium truncate ${i === currentIndex ? "text-white" : "text-gray-300"}`}>{track.title}</div>
-                    <div className="text-sm text-gray-500 truncate">{track.artist}</div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    {track.bpm > 0 && <div className="text-xs text-red-400/80 font-mono">{track.bpm} BPM</div>}
-                    <div className="text-xs text-gray-600">{Math.floor(track.duration / 60)}:{(track.duration % 60).toString().padStart(2, "0")}</div>
-                  </div>
-                </button>
+                  <Box
+                    sx={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 1.5,
+                      background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 800,
+                      color: "#fff",
+                    }}
+                  >
+                    {link.letter}
+                  </Box>
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{link.title}</Typography>
+                    <Typography variant="caption" sx={{ color: "text.disabled" }}>{link.sub}</Typography>
+                  </Box>
+                </MuiLink>
               ))}
-            </div>
-          </div>
-        )}
+            </Stack>
+          </Box>
+        </Stack>
+      </Drawer>
 
-        {/* Empty State */}
-        {!playlist.length && !loading && (
-          <div className="text-center py-20">
-            <div className="text-6xl mb-4">🎛</div>
-            <p className="text-gray-300 text-lg">Type a vibe and hit Go</p>
-            <p className="text-xs mt-2 text-gray-500">Two decks, a crossfader, and scratch-enabled turntables</p>
-            <p className="text-xs mt-1 text-gray-600">Tap ⚙ for BPM range, crossfade settings &amp; more</p>
-          </div>
-        )}
+      <Container maxWidth="md" sx={{ position: "relative", zIndex: 10, py: 4 }}>
+        <Stack spacing={3}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <MuiLink
+              href="/"
+              underline="none"
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+                color: "text.secondary",
+                fontSize: 14,
+                "&:hover": { color: "primary.light" },
+              }}
+            >
+              <ArrowBackIcon fontSize="small" /> Home
+            </MuiLink>
+            <Typography
+              variant="h4"
+              sx={{
+                fontWeight: 800,
+                background: `linear-gradient(90deg, ${theme.palette.primary.dark}, ${red}, ${redLight})`,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              ClawDJ Radio
+            </Typography>
+            <IconButton
+              onClick={() => setShowSettings(!showSettings)}
+              title="Settings"
+              sx={{ color: "text.secondary", "&:hover": { color: "primary.light" } }}
+            >
+              <SettingsIcon />
+            </IconButton>
+          </Stack>
 
-        {/* Footer */}
-        <div className="text-center pb-10 space-y-2">
-          <p className="text-gray-600 text-sm">Previews powered by Deezer &middot; clawdj.com</p>
-          <div className="flex items-center justify-center gap-4 text-xs">
-            <a href="https://github.com/damoahdominic/clawdj" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-orange-400 transition-colors">ClawDJ on GitHub</a>
-            <span className="text-gray-700">&middot;</span>
-            <a href="https://github.com/damoahdominic/anysong" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-orange-400 transition-colors">AnySong on GitHub</a>
-          </div>
-        </div>
-      </div>
-    </main>
+          <Stack spacing={1}>
+            <Stack direction="row" spacing={1}>
+              <TextField
+                fullWidth
+                value={vibeQuery}
+                onChange={(e) => setVibeQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
+                placeholder="Artist, song, or vibe..."
+                variant="outlined"
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: alpha("#000", 0.55),
+                    backdropFilter: "blur(6px)",
+                    "& fieldset": { borderColor: alpha(red, 0.3) },
+                    "&:hover fieldset": { borderColor: alpha(red, 0.5) },
+                    "&.Mui-focused fieldset": { borderColor: red },
+                  },
+                }}
+              />
+              <Button
+                onClick={loadPlaylist}
+                disabled={loading || !vibeQuery.trim()}
+                variant="contained"
+                sx={{
+                  px: 4,
+                  background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                  boxShadow: `0 6px 18px ${alpha(red, 0.45)}`,
+                  "&:hover": {
+                    background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})`,
+                  },
+                }}
+              >
+                {loading ? "..." : "Go"}
+              </Button>
+            </Stack>
+            {detected && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ pl: 0.5 }}>
+                <Box
+                  sx={{
+                    px: 1, py: 0.25, borderRadius: 1,
+                    fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
+                    textTransform: "uppercase",
+                    color: "#fff",
+                    bgcolor: alpha(red, 0.55),
+                    border: `1px solid ${alpha(red, 0.8)}`,
+                  }}
+                >
+                  {detected.type}
+                </Box>
+                {detected.label && (
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontSize: 11 }}>
+                    {detected.label}
+                  </Typography>
+                )}
+                {(detected.bpm_min != null || detected.bpm_max != null) && (
+                  <Typography variant="caption" sx={{ color: "text.disabled", fontFamily: "monospace", fontSize: 10 }}>
+                    · {detected.bpm_min ?? 0}–{detected.bpm_max ?? 200} BPM
+                  </Typography>
+                )}
+              </Stack>
+            )}
+          </Stack>
+
+          {(deckATrack || deckBTrack || playlist.length > 0) && (
+            <DeckLayout
+              deckA={{
+                track: deckATrack,
+                isPlaying: isDeckAPlaying,
+                isScratchActive: scratchActiveA,
+                volume: deckAVolume,
+                autoScratchTrigger: autoScratchA,
+                onScratchStart: handleDeckAScratchStart,
+                onScratchEnd: handleDeckAScratchEnd,
+                onPlayPause: togglePlay,
+                onTimeUpdate: handleDeckATimeUpdate,
+              }}
+              deckB={{
+                track: deckBTrack,
+                isPlaying: isDeckBPlaying,
+                isScratchActive: scratchActiveB,
+                volume: deckBVolume,
+                autoScratchTrigger: autoScratchB,
+                onScratchStart: handleDeckBScratchStart,
+                onScratchEnd: handleDeckBScratchEnd,
+                onPlayPause: togglePlay,
+                onTimeUpdate: handleDeckBTimeUpdate,
+              }}
+              crossfaderValue={crossfaderValue}
+              onCrossfaderChange={handleCrossfaderChange}
+              onSkipPrev={skipPrev}
+              onSkipNext={skipNext}
+              canSkipPrev={currentIndex > 0}
+              canSkipNext={currentIndex < playlist.length - 1}
+              isCrossfading={isCrossfading}
+              currentIndex={currentIndex}
+              playlistLength={playlist.length}
+              progress={progress}
+              switchPoint={switchPoint}
+              onSwitchPointChange={props.setSwitchPoint}
+              deckAProgress={props.deckAProgress}
+              deckBProgress={props.deckBProgress}
+              crossfadeMs={crossfadeMs}
+            />
+          )}
+
+          <EffectsPanel
+            effects={EFFECTS}
+            playing={playingEffects}
+            onTrigger={playEffect}
+            autoEffects={autoEffects}
+            onAutoChange={setAutoEffects}
+          />
+
+          {playlist.length > 0 && (
+            <Stack spacing={1.5}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5 }}>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  Up next · {playlist.length} tracks
+                  {infinityMode && (
+                    <Box component="span" sx={{ color: "primary.light", ml: 0.5 }}>· ∞</Box>
+                  )}
+                  {loadingMore && (
+                    <Box
+                      component="span"
+                      sx={{
+                        color: "primary.light",
+                        ml: 0.5,
+                        fontSize: 11,
+                        animation: "mui-pulse 1.2s ease-in-out infinite",
+                        "@keyframes mui-pulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.5 } },
+                      }}
+                    >
+                      loading more...
+                    </Box>
+                  )}
+                </Typography>
+                <Typography variant="caption" sx={{ color: "text.disabled" }}>
+                  {(crossfadeMs / 1000).toFixed(1)}s crossfade
+                </Typography>
+              </Stack>
+              <Box
+                sx={{
+                  bgcolor: alpha("#000", 0.55),
+                  backdropFilter: "blur(6px)",
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  border: `1px solid ${alpha(red, 0.15)}`,
+                }}
+              >
+                {playlist.map((track, i) => {
+                  const isCurrent = i === currentIndex;
+                  const isPast = i < currentIndex;
+                  return (
+                    <Box
+                      key={`${track.id}-${i}`}
+                      onClick={() => skipToTrack(i)}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1.5,
+                        p: 1.75,
+                        cursor: "pointer",
+                        borderBottom: `1px solid ${alpha("#fff", 0.04)}`,
+                        opacity: isPast ? 0.4 : 1,
+                        background: isCurrent
+                          ? `linear-gradient(90deg, ${alpha(red, 0.25)}, ${alpha(red, 0.05)})`
+                          : "transparent",
+                        borderLeft: isCurrent ? `2px solid ${redLight}` : "2px solid transparent",
+                        transition: "all 0.15s",
+                        "&:hover": { bgcolor: alpha("#fff", 0.04), opacity: isPast ? 0.7 : 1 },
+                        "&:last-of-type": { borderBottom: "none" },
+                      }}
+                    >
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          width: 24,
+                          textAlign: "right",
+                          color: isCurrent ? "primary.light" : "text.disabled",
+                          fontWeight: isCurrent ? 700 : 400,
+                        }}
+                      >
+                        {isCurrent && isPlaying ? "~" : i + 1}
+                      </Typography>
+                      {track.cover && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <Box
+                          component="img"
+                          src={track.cover}
+                          alt=""
+                          sx={{ width: 40, height: 40, borderRadius: 1, boxShadow: 1 }}
+                        />
+                      )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontWeight: 600,
+                            color: isCurrent ? "text.primary" : "text.secondary",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {track.title}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: "text.disabled",
+                            display: "block",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {track.artist}
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          textAlign: "right",
+                          flexShrink: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-end",
+                          minWidth: 48,
+                          gap: 0.25,
+                        }}
+                      >
+                        {/* FULL indicator — LED light in a recessed casing */}
+                        <Box
+                          sx={{
+                            height: 18,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.5,
+                              px: 0.75,
+                              py: 0.25,
+                              borderRadius: "4px",
+                              bgcolor: "rgba(0,0,0,0.5)",
+                              border: "1px solid rgba(60,60,60,0.6)",
+                              boxShadow: "inset 0 1px 3px rgba(0,0,0,0.7), 0 0.5px 0 rgba(255,255,255,0.05)",
+                              opacity: track.audioUrl ? 1 : 0,
+                              transition: "opacity 0.3s ease",
+                              pointerEvents: "none",
+                            }}
+                          >
+                            {/* LED bulb */}
+                            <Box
+                              sx={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: "50%",
+                                bgcolor: track.audioUrl ? "#ef4444" : "#3a1111",
+                                boxShadow: track.audioUrl
+                                  ? "0 0 4px 1px rgba(239,68,68,0.8), 0 0 10px 2px rgba(239,68,68,0.4), inset 0 -1px 2px rgba(0,0,0,0.3)"
+                                  : "inset 0 1px 2px rgba(0,0,0,0.5)",
+                                border: "0.5px solid rgba(0,0,0,0.4)",
+                                transition: "all 0.3s ease",
+                              }}
+                            />
+                            <Typography
+                              sx={{
+                                fontSize: 7,
+                                fontWeight: 800,
+                                letterSpacing: 1.2,
+                                lineHeight: 1,
+                                color: track.audioUrl ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.25)",
+                                transition: "color 0.3s ease",
+                                userSelect: "none",
+                              }}
+                            >
+                              FULL
+                            </Typography>
+                          </Box>
+                        </Box>
+                        {/* BPM — show if available */}
+                        {track.bpm > 0 && (
+                          <Typography
+                            variant="caption"
+                            sx={{ color: alpha(redLight, 0.8), fontFamily: "monospace", fontSize: 11, lineHeight: 1 }}
+                          >
+                            {track.bpm} BPM
+                          </Typography>
+                        )}
+                        {/* Duration — always shown */}
+                        <Typography variant="caption" sx={{ color: "text.disabled", lineHeight: 1 }}>
+                          {Math.floor(track.duration / 60)}:
+                          {(track.duration % 60).toString().padStart(2, "0")}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Box>
+            </Stack>
+          )}
+
+          {!playlist.length && !loading && (
+            <Box sx={{ textAlign: "center", py: 10 }}>
+              <TuneIcon sx={{ fontSize: 64, color: "primary.dark", mb: 1 }} />
+              <Typography variant="body1" sx={{ color: "text.secondary" }}>
+                Type a vibe and hit Go
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 1 }}>
+                Two decks, a crossfader, and scratch-enabled turntables
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.disabled", display: "block" }}>
+                Tap settings for BPM range, crossfade settings &amp; more
+              </Typography>
+            </Box>
+          )}
+
+          <Stack spacing={1} sx={{ textAlign: "center", pb: 5 }}>
+            <Typography variant="caption" sx={{ color: "text.disabled" }}>
+              Previews powered by Deezer · clawdj.com
+            </Typography>
+            <Stack direction="row" spacing={2} justifyContent="center">
+              <MuiLink
+                href="https://github.com/damoahdominic/clawdj"
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="none"
+                sx={{ color: "text.disabled", fontSize: 11, "&:hover": { color: "primary.light" } }}
+              >
+                ClawDJ on GitHub
+              </MuiLink>
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>·</Typography>
+              <MuiLink
+                href="https://github.com/damoahdominic/anysong"
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="none"
+                sx={{ color: "text.disabled", fontSize: 11, "&:hover": { color: "primary.light" } }}
+              >
+                AnySong on GitHub
+              </MuiLink>
+            </Stack>
+          </Stack>
+        </Stack>
+      </Container>
+    </Box>
   );
 }
