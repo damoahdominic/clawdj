@@ -1228,16 +1228,11 @@ function RadioView(props: RadioViewProps) {
               deckAProgress={props.deckAProgress}
               deckBProgress={props.deckBProgress}
               crossfadeMs={crossfadeMs}
+              effects={EFFECTS}
+              playingEffects={playingEffects}
+              onTriggerEffect={playEffect}
             />
           )}
-
-          <EffectsPanel
-            effects={EFFECTS}
-            playing={playingEffects}
-            onTrigger={playEffect}
-            autoEffects={autoEffects}
-            onAutoChange={setAutoEffects}
-          />
 
           {playlist.length > 0 && (
             <Stack spacing={1.5}>
