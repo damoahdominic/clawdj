@@ -839,11 +839,24 @@ export function DeckLayout({
                   gridTemplateColumns: `repeat(${Math.min(effects.length, 4)}, 38px)`,
                   gap: "6px",
                   justifyContent: "center",
-                  p: 1,
-                  borderRadius: "3px",
-                  background: `linear-gradient(180deg, ${alpha("#0a0a0a", 0.95)}, ${alpha("#060606", 0.98)})`,
-                  border: `1px solid ${alpha("#333", 0.4)}`,
-                  boxShadow: `inset 0 2px 6px ${alpha("#000", 0.6)}, 0 1px 0 ${alpha("#222", 0.2)}`,
+                  p: 1.25,
+                  borderRadius: "4px",
+                  // Brushed-metal base with noise texture
+                  background: [
+                    `repeating-linear-gradient(90deg, ${alpha("#fff", 0.015)} 0px, transparent 1px, transparent 3px)`,
+                    `repeating-linear-gradient(90deg, ${alpha("#000", 0.03)} 0px, transparent 1px, transparent 5px)`,
+                    `linear-gradient(175deg, ${alpha("#2a2a2a", 0.95)} 0%, ${alpha("#1e1e1e", 0.97)} 40%, ${alpha("#161616", 0.98)} 100%)`,
+                  ].join(", "),
+                  border: `1px solid ${alpha("#444", 0.5)}`,
+                  borderTop: `1px solid ${alpha("#555", 0.5)}`,
+                  borderBottom: `1px solid ${alpha("#222", 0.6)}`,
+                  boxShadow: [
+                    `inset 0 1px 0 ${alpha("#fff", 0.04)}`,
+                    `inset 0 -1px 0 ${alpha("#000", 0.3)}`,
+                    `inset 0 2px 4px ${alpha("#000", 0.25)}`,
+                    `0 2px 4px ${alpha("#000", 0.4)}`,
+                    `0 1px 0 ${alpha("#333", 0.15)}`,
+                  ].join(", "),
                 }}
               >
                 {effects.map((eff) => {
