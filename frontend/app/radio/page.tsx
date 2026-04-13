@@ -576,7 +576,7 @@ export default function Radio() {
           for (const [idxStr, url] of entries) {
             const idx = Number(idxStr);
             if (url && next[idx] && !next[idx].audioUrl) {
-              next[idx] = { ...next[idx], audioUrl: url };
+              next[idx] = { ...next[idx], audioUrl: `${API_URL}${url}` };
               changed = true;
             }
           }
