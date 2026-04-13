@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, IconButton, Paper, Slider, Stack, Typography, Button } from "@mui/material";
+import { Box, IconButton, Paper, Slider, Stack, Tooltip, Typography, Button } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
@@ -830,88 +830,111 @@ export function DeckLayout({
             </IconButton>
           </Stack>
 
-          {/* ── Effects Bar ─────────────────────────────────────── */}
+          {/* ── Effects Pad Grid ────────────────────────────────── */}
           {effects.length > 0 && onTriggerEffect && (
             <Box sx={{ mt: 1.5 }}>
-              <Typography
-                variant="caption"
+              <Box
                 sx={{
-                  display: "block",
-                  textAlign: "center",
-                  fontWeight: 800,
-                  letterSpacing: 2.5,
-                  textTransform: "uppercase",
-                  fontSize: 8,
-                  color: alpha(redLight, 0.5),
-                  mb: 0.75,
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${Math.min(effects.length, 4)}, 38px)`,
+                  gap: "6px",
+                  justifyContent: "center",
+                  p: 1,
+                  borderRadius: "3px",
+                  background: `linear-gradient(180deg, ${alpha("#0a0a0a", 0.95)}, ${alpha("#060606", 0.98)})`,
+                  border: `1px solid ${alpha("#333", 0.4)}`,
+                  boxShadow: `inset 0 2px 6px ${alpha("#000", 0.6)}, 0 1px 0 ${alpha("#222", 0.2)}`,
                 }}
               >
-                Effects Bar
-              </Typography>
-              <Stack direction="row" spacing={0.75} justifyContent="center">
                 {effects.map((eff) => {
                   const isActive = playingEffects?.has(eff.name) ?? false;
                   return (
-                    <Box
-                      key={eff.name}
-                      role="button"
-                      onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
-                      sx={{
-                        cursor: "pointer",
-                        userSelect: "none",
-                        px: 1.25,
-                        py: 0.5,
-                        borderRadius: 1,
-                        border: `1px solid ${alpha(red, isActive ? 0.9 : 0.25)}`,
-                        background: isActive
-                          ? `linear-gradient(135deg, ${alpha(red, 0.5)}, ${alpha(redLight, 0.25)})`
-                          : alpha("#111", 0.7),
-                        boxShadow: isActive
-                          ? `0 0 12px ${alpha(red, 0.5)}, inset 0 0 8px ${alpha(redLight, 0.2)}`
-                          : `inset 0 1px 0 ${alpha("#fff", 0.03)}`,
-                        transition: "all 0.15s ease",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.5,
-                        "&:hover": {
-                          borderColor: alpha(red, 0.6),
-                          background: isActive
-                            ? `linear-gradient(135deg, ${alpha(red, 0.55)}, ${alpha(redLight, 0.3)})`
-                            : alpha("#1a1a1a", 0.9),
+                    <Tooltip key={eff.name} title={eff.label} placement="top" arrow
+                      slotProps={{
+                        tooltip: {
+                          sx: {
+                            bgcolor: alpha("#1a1a1a", 0.95),
+                            color: "#fff",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            letterSpacing: 1,
+                            border: `1px solid ${alpha(red, 0.3)}`,
+                            backdropFilter: "blur(8px)",
+                          },
                         },
-                        "&:active": { transform: "scale(0.95)" },
+                        arrow: { sx: { color: alpha("#1a1a1a", 0.95) } },
                       }}
                     >
-                      {/* LED dot */}
                       <Box
+                        role="button"
+                        onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
                         sx={{
-                          width: 5,
-                          height: 5,
-                          borderRadius: "50%",
-                          bgcolor: isActive ? redLight : alpha(red, 0.3),
+                          cursor: "pointer",
+                          userSelect: "none",
+                          width: 38,
+                          height: 38,
+                          borderRadius: "2px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "relative",
+                          // Rubber pad surface
+                          background: isActive
+                            ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
+                            : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
+                          border: `1px solid ${alpha(isActive ? red : "#333", isActive ? 0.5 : 0.35)}`,
                           boxShadow: isActive
-                            ? `0 0 6px ${redLight}, 0 0 12px ${alpha(redLight, 0.5)}`
-                            : "none",
-                          transition: "all 0.15s ease",
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Typography
-                        sx={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          letterSpacing: 0.5,
-                          lineHeight: 1,
-                          color: isActive ? "#fff" : alpha("#fff", 0.5),
-                          whiteSpace: "nowrap",
+                            ? `0 0 14px ${alpha(red, 0.3)}, inset 0 1px 3px ${alpha("#000", 0.5)}`
+                            : `inset 0 1px 3px ${alpha("#000", 0.5)}, 0 1px 0 ${alpha("#222", 0.15)}`,
+                          transition: "all 0.1s ease",
+                          "&:hover": {
+                            border: `1px solid ${alpha(red, 0.5)}`,
+                            boxShadow: `0 0 8px ${alpha(red, 0.2)}, inset 0 1px 3px ${alpha("#000", 0.5)}`,
+                          },
+                          "&:active": {
+                            transform: "scale(0.93)",
+                            boxShadow: `inset 0 2px 6px ${alpha("#000", 0.7)}`,
+                          },
                         }}
                       >
-                        {eff.label}
-                      </Typography>
-                    </Box>
+                        {/* Realistic LED light */}
+                        <Box sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          position: "relative",
+                          // LED housing ring
+                          border: `1.5px solid ${alpha("#222", 0.8)}`,
+                          // LED bulb
+                          background: isActive
+                            ? `radial-gradient(circle at 40% 35%, ${alpha("#ff6b6b", 0.95)}, ${red} 50%, ${alpha("#8b0000", 0.9)} 100%)`
+                            : `radial-gradient(circle at 40% 35%, ${alpha("#3a1515", 0.8)}, ${alpha("#1a0808", 0.9)} 70%)`,
+                          boxShadow: isActive
+                            ? [
+                                `0 0 3px 1px ${alpha(red, 0.9)}`,
+                                `0 0 8px 2px ${alpha(red, 0.5)}`,
+                                `0 0 16px 4px ${alpha(red, 0.25)}`,
+                                `inset 0 -1px 2px ${alpha("#ff9999", 0.3)}`,
+                              ].join(", ")
+                            : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                          transition: "all 0.12s ease",
+                          // Hot-spot highlight on active LED
+                          "&::after": isActive ? {
+                            content: '""',
+                            position: "absolute",
+                            top: "15%",
+                            left: "25%",
+                            width: "35%",
+                            height: "30%",
+                            borderRadius: "50%",
+                            background: `radial-gradient(ellipse, ${alpha("#fff", 0.6)}, transparent)`,
+                          } : {},
+                        }} />
+                      </Box>
+                    </Tooltip>
                   );
                 })}
-              </Stack>
+              </Box>
             </Box>
           )}
         </Stack>
