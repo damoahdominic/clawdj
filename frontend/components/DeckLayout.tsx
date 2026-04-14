@@ -719,7 +719,7 @@ export function DeckLayout({
   );
 
   const progressBar = playlistLength > 0 ? (
-    <Box sx={{ mt: 1.5, position: "relative", height: 10 }}>
+    <Box sx={{ mt: 1.5, mb: "20px", position: "relative", height: 10 }}>
       <Box
         sx={{
           position: "absolute", inset: 0,
