@@ -665,7 +665,7 @@ export function DeckLayout({
   const [eqAnchor, setEqAnchor] = useState<HTMLElement | null>(null);
   const eqOpen = Boolean(eqAnchor);
 
-  const waveformHeight = isMobile ? 52 : 68;
+  const waveformHeight = isMobile ? 40 : 52;
 
   // Derived track durations for waveform scroll math
   const durA = deckA.track?.duration ?? 30;
