@@ -891,32 +891,54 @@ export function DeckLayout({
                 }}
               >
                 <Box sx={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "2px",
+                  width: 20,
+                  height: 20,
+                  borderRadius: "3px",
                   position: "relative",
-                  border: `1.5px solid ${alpha("#222", 0.8)}`,
+                  overflow: "hidden",
+                  // Glass button: light top edge, dark bottom = protruding upward
                   background: isActive
-                    ? `linear-gradient(135deg, ${alpha(c, 0.95)}, ${alpha(c, 0.6)})`
-                    : `linear-gradient(135deg, ${cDark}, ${alpha(c, 0.08)})`,
+                    ? `linear-gradient(180deg, ${alpha(c, 0.95)} 0%, ${alpha(c, 0.7)} 50%, ${alpha(c, 0.45)} 100%)`
+                    : `linear-gradient(180deg, ${alpha(c, 0.18)} 0%, ${alpha(c, 0.08)} 50%, ${alpha(c, 0.03)} 100%)`,
+                  border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.5 : 0.4)}`,
                   boxShadow: isActive
                     ? [
-                        `0 0 3px 1px ${alpha(c, 0.9)}`,
-                        `0 0 8px 2px ${alpha(c, 0.5)}`,
-                        `0 0 16px 4px ${alpha(c, 0.25)}`,
+                        `0 2px 4px ${alpha("#000", 0.5)}`,
+                        `0 0 8px 2px ${alpha(c, 0.4)}`,
+                        `0 0 20px 4px ${alpha(c, 0.2)}`,
+                        `inset 0 1px 1px ${alpha("#fff", 0.4)}`,
+                        `inset 0 -1px 2px ${alpha("#000", 0.3)}`,
                       ].join(", ")
-                    : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                    : [
+                        `0 1px 3px ${alpha("#000", 0.5)}`,
+                        `inset 0 1px 1px ${alpha("#fff", 0.06)}`,
+                        `inset 0 -1px 2px ${alpha("#000", 0.4)}`,
+                      ].join(", "),
                   transition: "all 0.12s ease",
-                  "&::after": isActive ? {
+                  // Top specular highlight — glass sheen
+                  "&::before": {
                     content: '""',
                     position: "absolute",
-                    top: "10%",
-                    left: "15%",
-                    width: "40%",
-                    height: "35%",
-                    borderRadius: "1px",
-                    background: `linear-gradient(135deg, ${alpha("#fff", 0.5)}, transparent)`,
-                  } : {},
+                    top: 0, left: 0, right: 0,
+                    height: "45%",
+                    borderRadius: "3px 3px 50% 50%",
+                    background: isActive
+                      ? `linear-gradient(180deg, ${alpha("#fff", 0.45)}, ${alpha("#fff", 0.05)})`
+                      : `linear-gradient(180deg, ${alpha("#fff", 0.1)}, transparent)`,
+                    pointerEvents: "none",
+                  },
+                  // Bottom edge reflection
+                  "&::after": {
+                    content: '""',
+                    position: "absolute",
+                    bottom: 0, left: "10%", right: "10%",
+                    height: "15%",
+                    borderRadius: "0 0 2px 2px",
+                    background: isActive
+                      ? `linear-gradient(0deg, ${alpha("#fff", 0.15)}, transparent)`
+                      : "none",
+                    pointerEvents: "none",
+                  },
                 }} />
               </Box>
             </Tooltip>
@@ -1057,14 +1079,23 @@ export function DeckLayout({
                       }}
                     >
                       <Box sx={{
-                        width: 7, height: 7, borderRadius: "2px",
-                        border: `1px solid ${alpha("#222", 0.8)}`,
+                        width: 16, height: 16, borderRadius: "2px",
+                        position: "relative", overflow: "hidden",
                         background: isActive
-                          ? `linear-gradient(135deg, ${alpha(c, 0.95)}, ${alpha(c, 0.6)})`
-                          : `linear-gradient(135deg, ${alpha(c, 0.25)}, ${alpha(c, 0.08)})`,
+                          ? `linear-gradient(180deg, ${alpha(c, 0.95)}, ${alpha(c, 0.7)} 50%, ${alpha(c, 0.45)})`
+                          : `linear-gradient(180deg, ${alpha(c, 0.18)}, ${alpha(c, 0.08)} 50%, ${alpha(c, 0.03)})`,
+                        border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.5 : 0.4)}`,
                         boxShadow: isActive
-                          ? `0 0 3px 1px ${alpha(c, 0.9)}, 0 0 8px 2px ${alpha(c, 0.4)}`
-                          : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                          ? `0 1px 3px ${alpha("#000", 0.5)}, 0 0 6px ${alpha(c, 0.4)}, inset 0 1px 1px ${alpha("#fff", 0.35)}, inset 0 -1px 2px ${alpha("#000", 0.3)}`
+                          : `0 1px 2px ${alpha("#000", 0.5)}, inset 0 1px 1px ${alpha("#fff", 0.06)}, inset 0 -1px 2px ${alpha("#000", 0.4)}`,
+                        "&::before": {
+                          content: '""', position: "absolute",
+                          top: 0, left: 0, right: 0, height: "45%",
+                          borderRadius: "2px 2px 50% 50%",
+                          background: isActive
+                            ? `linear-gradient(180deg, ${alpha("#fff", 0.4)}, ${alpha("#fff", 0.05)})`
+                            : `linear-gradient(180deg, ${alpha("#fff", 0.08)}, transparent)`,
+                        },
                       }} />
                     </Box>
                   </Tooltip>
