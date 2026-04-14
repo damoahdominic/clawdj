@@ -811,14 +811,13 @@ export function DeckLayout({
 
   const effectsPadSize = isMobile ? 34 : 38;
   const rainbowColors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#f43f5e"];
+  const innerSize = Math.round(effectsPadSize * 0.47);
   const effectsGrid = effects.length > 0 && onTriggerEffect ? (
     <Box sx={{ mt: 1.5 }}>
       <Box
         sx={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${Math.min(effects.length, 4)}, ${effectsPadSize}px)`,
-          gap: "6px",
-          justifyContent: "center",
+          overflowX: "auto",
+          overflowY: "hidden",
           p: 1.25,
           borderRadius: "4px",
           background: [
@@ -836,114 +835,129 @@ export function DeckLayout({
             `0 2px 4px ${alpha("#000", 0.4)}`,
             `0 1px 0 ${alpha("#333", 0.15)}`,
           ].join(", "),
+          "&::-webkit-scrollbar": { height: 4 },
+          "&::-webkit-scrollbar-thumb": { bgcolor: alpha(red, 0.3), borderRadius: 2 },
+          "&::-webkit-scrollbar-track": { bgcolor: "transparent" },
         }}
       >
-        {effects.map((eff, idx) => {
-          const isActive = playingEffects?.has(eff.name) ?? false;
-          const c = rainbowColors[idx % rainbowColors.length];
-          const cDark = alpha(c, 0.25);
-          return (
-            <Tooltip key={eff.name} title={eff.label} placement="top" arrow
-              slotProps={{
-                tooltip: {
-                  sx: {
-                    bgcolor: alpha("#1a1a1a", 0.95),
-                    color: "#fff",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: 1,
-                    border: `1px solid ${alpha(c, 0.4)}`,
-                    backdropFilter: "blur(8px)",
-                  },
-                },
-                arrow: { sx: { color: alpha("#1a1a1a", 0.95) } },
-              }}
-            >
-              <Box
-                role="button"
-                onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
-                sx={{
-                  cursor: "pointer",
-                  userSelect: "none",
-                  width: effectsPadSize,
-                  height: effectsPadSize,
-                  borderRadius: "2px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  position: "relative",
-                  background: isActive
-                    ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
-                    : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
-                  border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.6 : 0.35)}`,
-                  boxShadow: isActive
-                    ? `0 0 14px ${alpha(c, 0.35)}, inset 0 1px 3px ${alpha("#000", 0.5)}`
-                    : `inset 0 1px 3px ${alpha("#000", 0.5)}, 0 1px 0 ${alpha("#222", 0.15)}`,
-                  transition: "all 0.1s ease",
-                  "&:hover": {
-                    border: `1px solid ${alpha(c, 0.6)}`,
-                    boxShadow: `0 0 8px ${alpha(c, 0.25)}, inset 0 1px 3px ${alpha("#000", 0.5)}`,
-                  },
-                  "&:active": {
-                    transform: "scale(0.93)",
-                    boxShadow: `inset 0 2px 6px ${alpha("#000", 0.7)}`,
-                  },
+        {/* 2-row grid that scrolls horizontally */}
+        <Box sx={{
+          display: "grid",
+          gridTemplateRows: `repeat(2, ${effectsPadSize}px)`,
+          gridAutoFlow: "column",
+          gridAutoColumns: `${effectsPadSize}px`,
+          gap: "6px",
+          width: "max-content",
+        }}>
+          {effects.map((eff, idx) => {
+            const isActive = playingEffects?.has(eff.name) ?? false;
+            const c = rainbowColors[idx % rainbowColors.length];
+            return (
+              <Tooltip key={eff.name} title={eff.label} placement="top" arrow
+                slotProps={{
+                  tooltip: { sx: { bgcolor: alpha("#1a1a1a", 0.95), color: "#fff", fontSize: 10, fontWeight: 700, letterSpacing: 1, border: `1px solid ${alpha(c, 0.4)}`, backdropFilter: "blur(8px)" } },
+                  arrow: { sx: { color: alpha("#1a1a1a", 0.95) } },
                 }}
               >
-                <Box sx={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: "3px",
-                  position: "relative",
-                  overflow: "hidden",
-                  // Glass button: light top edge, dark bottom = protruding upward
-                  background: isActive
-                    ? `linear-gradient(180deg, ${alpha(c, 0.95)} 0%, ${alpha(c, 0.7)} 50%, ${alpha(c, 0.45)} 100%)`
-                    : `linear-gradient(180deg, ${alpha(c, 0.18)} 0%, ${alpha(c, 0.08)} 50%, ${alpha(c, 0.03)} 100%)`,
-                  border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.5 : 0.4)}`,
-                  boxShadow: isActive
-                    ? [
+                <Box
+                  role="button"
+                  onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
+                  sx={{
+                    cursor: "pointer",
+                    userSelect: "none",
+                    width: effectsPadSize,
+                    height: effectsPadSize,
+                    borderRadius: "2px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    position: "relative",
+                    background: isActive
+                      ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
+                      : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
+                    border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.6 : 0.35)}`,
+                    boxShadow: isActive
+                      ? `0 0 14px ${alpha(c, 0.35)}, inset 0 1px 3px ${alpha("#000", 0.5)}`
+                      : `inset 0 1px 3px ${alpha("#000", 0.5)}, 0 1px 0 ${alpha("#222", 0.15)}`,
+                    transition: "all 0.1s ease",
+                    // Hover lights up the inner glass
+                    "&:hover .fx-inner": {
+                      background: `linear-gradient(180deg, ${alpha(c, 0.85)}, ${alpha(c, 0.55)} 50%, ${alpha(c, 0.35)})`,
+                      border: `1px solid ${alpha(c, 0.5)}`,
+                      boxShadow: [
                         `0 2px 4px ${alpha("#000", 0.5)}`,
-                        `0 0 8px 2px ${alpha(c, 0.4)}`,
-                        `0 0 20px 4px ${alpha(c, 0.2)}`,
-                        `inset 0 1px 1px ${alpha("#fff", 0.4)}`,
+                        `0 0 8px 2px ${alpha(c, 0.35)}`,
+                        `inset 0 1px 1px ${alpha("#fff", 0.35)}`,
                         `inset 0 -1px 2px ${alpha("#000", 0.3)}`,
-                      ].join(", ")
-                    : [
-                        `0 1px 3px ${alpha("#000", 0.5)}`,
-                        `inset 0 1px 1px ${alpha("#fff", 0.06)}`,
-                        `inset 0 -1px 2px ${alpha("#000", 0.4)}`,
                       ].join(", "),
-                  transition: "all 0.12s ease",
-                  // Top specular highlight — glass sheen
-                  "&::before": {
-                    content: '""',
-                    position: "absolute",
-                    top: 0, left: 0, right: 0,
-                    height: "45%",
-                    borderRadius: "3px 3px 50% 50%",
+                    },
+                    "&:hover .fx-dot": {
+                      bgcolor: c,
+                      boxShadow: `0 0 4px ${alpha(c, 0.8)}`,
+                    },
+                    "&:active": {
+                      transform: "scale(0.93)",
+                      boxShadow: `inset 0 2px 6px ${alpha("#000", 0.7)}`,
+                    },
+                  }}
+                >
+                  {/* Inner glass square */}
+                  <Box className="fx-inner" sx={{
+                    width: innerSize,
+                    height: innerSize,
+                    borderRadius: "3px",
+                    position: "relative",
+                    overflow: "hidden",
                     background: isActive
-                      ? `linear-gradient(180deg, ${alpha("#fff", 0.45)}, ${alpha("#fff", 0.05)})`
-                      : `linear-gradient(180deg, ${alpha("#fff", 0.1)}, transparent)`,
-                    pointerEvents: "none",
-                  },
-                  // Bottom edge reflection
-                  "&::after": {
-                    content: '""',
+                      ? `linear-gradient(180deg, ${alpha(c, 0.95)}, ${alpha(c, 0.7)} 50%, ${alpha(c, 0.45)})`
+                      : `linear-gradient(180deg, ${alpha(c, 0.18)}, ${alpha(c, 0.08)} 50%, ${alpha(c, 0.03)})`,
+                    border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.5 : 0.4)}`,
+                    boxShadow: isActive
+                      ? [
+                          `0 2px 4px ${alpha("#000", 0.5)}`,
+                          `0 0 8px 2px ${alpha(c, 0.4)}`,
+                          `0 0 20px 4px ${alpha(c, 0.2)}`,
+                          `inset 0 1px 1px ${alpha("#fff", 0.4)}`,
+                          `inset 0 -1px 2px ${alpha("#000", 0.3)}`,
+                        ].join(", ")
+                      : [
+                          `0 1px 3px ${alpha("#000", 0.5)}`,
+                          `inset 0 1px 1px ${alpha("#fff", 0.06)}`,
+                          `inset 0 -1px 2px ${alpha("#000", 0.4)}`,
+                        ].join(", "),
+                    transition: "all 0.12s ease",
+                    "&::before": {
+                      content: '""',
+                      position: "absolute",
+                      top: 0, left: 0, right: 0,
+                      height: "45%",
+                      borderRadius: "3px 3px 50% 50%",
+                      background: isActive
+                        ? `linear-gradient(180deg, ${alpha("#fff", 0.45)}, ${alpha("#fff", 0.05)})`
+                        : `linear-gradient(180deg, ${alpha("#fff", 0.1)}, transparent)`,
+                      pointerEvents: "none",
+                    },
+                  }} />
+                  {/* Tiny status LED dot — bottom right */}
+                  <Box className="fx-dot" sx={{
                     position: "absolute",
-                    bottom: 0, left: "10%", right: "10%",
-                    height: "15%",
-                    borderRadius: "0 0 2px 2px",
-                    background: isActive
-                      ? `linear-gradient(0deg, ${alpha("#fff", 0.15)}, transparent)`
+                    bottom: 3,
+                    right: 3,
+                    width: 4,
+                    height: 4,
+                    borderRadius: "50%",
+                    bgcolor: isActive ? c : alpha(c, 0.15),
+                    boxShadow: isActive
+                      ? `0 0 4px ${alpha(c, 0.8)}, 0 0 8px ${alpha(c, 0.4)}`
                       : "none",
-                    pointerEvents: "none",
-                  },
-                }} />
-              </Box>
-            </Tooltip>
-          );
-        })}
+                    border: `0.5px solid ${alpha("#000", 0.4)}`,
+                    transition: "all 0.12s ease",
+                  }} />
+                </Box>
+              </Tooltip>
+            );
+          })}
+        </Box>
       </Box>
     </Box>
   ) : null;
