@@ -1100,7 +1100,105 @@ function RadioView(props: RadioViewProps) {
         </Stack>
       </Drawer>
 
-      <Container maxWidth="md" sx={{ position: "relative", zIndex: 10, py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 } }}>
+      {/* ── Landing / hero state (no results yet) ── */}
+      {!playlist.length && !loading && (
+        <Container
+          maxWidth="sm"
+          sx={{
+            position: "relative", zIndex: 10,
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            minHeight: "100vh",
+            px: { xs: 2, sm: 3 },
+            transition: "all 0.5s cubic-bezier(0.4,0,0.2,1)",
+          }}
+        >
+          <Typography
+            sx={{
+              fontWeight: 800,
+              fontSize: { xs: 36, sm: 52 },
+              background: `linear-gradient(90deg, ${theme.palette.primary.dark}, ${red}, ${redLight})`,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              mb: 1,
+            }}
+          >
+            ClawDJ Radio
+          </Typography>
+          <Typography sx={{ color: "text.secondary", mb: 4, fontSize: { xs: 13, sm: 15 }, textAlign: "center" }}>
+            Two decks, a crossfader, and scratch-enabled turntables
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ width: "100%", maxWidth: 480 }}>
+            <TextField
+              fullWidth
+              value={vibeQuery}
+              onChange={(e) => setVibeQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
+              placeholder="Artist, song, or vibe..."
+              variant="outlined"
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  bgcolor: alpha("#000", 0.55),
+                  backdropFilter: "blur(6px)",
+                  borderRadius: 3,
+                  "& fieldset": { borderColor: alpha(red, 0.3) },
+                  "&:hover fieldset": { borderColor: alpha(red, 0.5) },
+                  "&.Mui-focused fieldset": { borderColor: red },
+                },
+              }}
+            />
+            <IconButton
+              onClick={loadPlaylist}
+              disabled={loading || !vibeQuery.trim()}
+              sx={{
+                width: 48, height: 48, flexShrink: 0,
+                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                boxShadow: `0 6px 18px ${alpha(red, 0.45)}`,
+                color: "#fff",
+                "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
+                "&.Mui-disabled": { opacity: 0.35, color: "#fff" },
+              }}
+            >
+              <SearchIcon />
+            </IconButton>
+          </Stack>
+          <Stack direction="row" spacing={2} sx={{ mt: 3, opacity: 0.5 }}>
+            {["chill house", "90s hip hop", "Kendrick Lamar", "jazz vibes"].map((s) => (
+              <Chip
+                key={s}
+                label={s}
+                size="small"
+                onClick={() => { setVibeQuery(s); }}
+                sx={{
+                  fontSize: 11, fontWeight: 600,
+                  bgcolor: alpha(red, 0.1),
+                  border: `1px solid ${alpha(red, 0.2)}`,
+                  color: "text.secondary",
+                  "&:hover": { bgcolor: alpha(red, 0.2), color: "#fff" },
+                }}
+              />
+            ))}
+          </Stack>
+          <Stack direction="row" spacing={2} sx={{ mt: 6, opacity: 0.3 }}>
+            <MuiLink href="/" underline="none" sx={{ color: "text.disabled", fontSize: 12, "&:hover": { color: "primary.light" } }}>
+              <ArrowBackIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: "middle" }} />Home
+            </MuiLink>
+            <IconButton onClick={() => setShowSettings(true)} size="small" sx={{ color: "text.disabled", "&:hover": { color: "primary.light" } }}>
+              <SettingsIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Stack>
+        </Container>
+      )}
+
+      {/* ── Active DJ state (has results or loading) ── */}
+      {(playlist.length > 0 || loading) && (
+      <Container
+        maxWidth="md"
+        sx={{
+          position: "relative", zIndex: 10, py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 },
+          animation: "fadeSlideIn 0.5s cubic-bezier(0.4,0,0.2,1)",
+          "@keyframes fadeSlideIn": { "0%": { opacity: 0, transform: "translateY(20px)" }, "100%": { opacity: 1, transform: "translateY(0)" } },
+        }}
+      >
         <Stack spacing={{ xs: 2, sm: 3 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             <MuiLink
@@ -1538,49 +1636,14 @@ function RadioView(props: RadioViewProps) {
             </Stack>
           )}
 
-          {!playlist.length && !loading && (
-            <Box sx={{ textAlign: "center", py: { xs: 5, sm: 10 } }}>
-              <TuneIcon sx={{ fontSize: { xs: 48, sm: 64 }, color: "primary.dark", mb: 1 }} />
-              <Typography variant="body1" sx={{ color: "text.secondary" }}>
-                Type a vibe and hit Go
-              </Typography>
-              <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 1 }}>
-                Two decks, a crossfader, and scratch-enabled turntables
-              </Typography>
-              <Typography variant="caption" sx={{ color: "text.disabled", display: "block" }}>
-                Tap settings for BPM range, crossfade settings &amp; more
-              </Typography>
-            </Box>
-          )}
-
           <Stack spacing={1} sx={{ textAlign: "center", pb: 5 }}>
             <Typography variant="caption" sx={{ color: "text.disabled" }}>
               Previews powered by Deezer · clawdj.com
             </Typography>
-            <Stack direction="row" spacing={2} justifyContent="center">
-              <MuiLink
-                href="https://github.com/damoahdominic/clawdj"
-                target="_blank"
-                rel="noopener noreferrer"
-                underline="none"
-                sx={{ color: "text.disabled", fontSize: 11, "&:hover": { color: "primary.light" } }}
-              >
-                ClawDJ on GitHub
-              </MuiLink>
-              <Typography variant="caption" sx={{ color: "text.disabled" }}>·</Typography>
-              <MuiLink
-                href="https://github.com/damoahdominic/anysong"
-                target="_blank"
-                rel="noopener noreferrer"
-                underline="none"
-                sx={{ color: "text.disabled", fontSize: 11, "&:hover": { color: "primary.light" } }}
-              >
-                AnySong on GitHub
-              </MuiLink>
-            </Stack>
           </Stack>
         </Stack>
       </Container>
+      )}
     </Box>
   );
 }
