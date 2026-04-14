@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, IconButton, Paper, Slider, Stack, Tooltip, Typography, Button, useMediaQuery } from "@mui/material";
+import { Box, ClickAwayListener, IconButton, Paper, Popper, Slider, Stack, Tooltip, Typography, Button, useMediaQuery } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
@@ -672,6 +672,8 @@ export function DeckLayout({
 
   const isMobile = useMediaQuery("(max-width:767px)");
   const [mobileDeck, setMobileDeck] = useState<"A" | "B">("A");
+  const [eqAnchor, setEqAnchor] = useState<HTMLElement | null>(null);
+  const eqOpen = Boolean(eqAnchor);
 
   const waveformHeight = isMobile ? 52 : 68;
 
@@ -933,16 +935,69 @@ export function DeckLayout({
   ) : null;
 
   // ── MOBILE LAYOUT ────────────────────────────────────────────
+  // Both decks visible side-by-side with small discs, compact Winamp-style
+  // EQ hidden behind a popup, everything fits in ~half the screen.
   if (isMobile) {
+    const mobileDiscSize = 56;
+
+    // Helper: mini deck column (turntable + BPM + track name)
+    const MobileDeckCol = ({ id, dkProps, ctrl, engRef, accent }: {
+      id: "A" | "B";
+      dkProps: typeof deckA;
+      ctrl: DeckCtrl;
+      engRef: React.MutableRefObject<AudioEngineApi | null>;
+      accent: AccentTone;
+    }) => {
+      const effectiveRate = ctrl.tempo * (1 + ctrl.pitch * 0.03);
+      return (
+        <Stack alignItems="center" spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+          {/* Deck label + BPM */}
+          <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ width: "100%" }} justifyContent="center">
+            <Typography sx={{ fontSize: 8, fontWeight: 800, letterSpacing: 2, color: alpha(redLight, 0.5) }}>{id}</Typography>
+            <Typography sx={{ fontFamily: "monospace", color: redLight, fontWeight: 800, fontSize: 13, lineHeight: 1 }}>
+              {dkProps.track?.bpm ? (dkProps.track.bpm * effectiveRate).toFixed(0) : "---"}
+            </Typography>
+          </Stack>
+
+          {/* Small turntable */}
+          <Turntable
+            deckId={id}
+            size={mobileDiscSize}
+            isPlaying={dkProps.isPlaying}
+            coverUrl={dkProps.track?.cover}
+            bpm={dkProps.track?.bpm ?? 120}
+            duration={dkProps.track?.duration}
+            accentColor={accent}
+            audioUrl={dkProps.track?.audioUrl || dkProps.track?.preview}
+            volume={dkProps.volume}
+            autoScratchTrigger={dkProps.autoScratchTrigger}
+            onScratchStart={dkProps.onScratchStart}
+            onScratchEnd={dkProps.onScratchEnd}
+            onTimeUpdate={dkProps.onTimeUpdate}
+            engineRef={engRef}
+          />
+
+          {/* Track meta — 1 line each, ellipsis */}
+          <Stack alignItems="center" sx={{ width: "100%", minWidth: 0 }}>
+            <Typography sx={{ fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%", textAlign: "center" }}>
+              {dkProps.track?.title ?? "—"}
+            </Typography>
+            <Typography sx={{ fontSize: 8, color: "text.secondary", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%", textAlign: "center" }}>
+              {dkProps.track?.artist ?? ""}
+            </Typography>
+          </Stack>
+        </Stack>
+      );
+    };
+
+    // Which deck is selected for the control strip
     const activeCtrl = mobileDeck === "A" ? ctrlA : ctrlB;
-    const activeDeckProps = mobileDeck === "A" ? deckA : deckB;
-    const activeEngineRef = mobileDeck === "A" ? engineARef : engineBRef;
 
     return (
       <Paper
         elevation={8}
         sx={{
-          p: 1.5, borderRadius: 2,
+          p: 1, borderRadius: 2,
           position: "relative",
           border: `1px solid ${alpha(red, 0.3)}`,
           ...darkBrushedPanel,
@@ -956,155 +1011,182 @@ export function DeckLayout({
           },
         }}
       >
-        {/* Deck A/B toggle */}
-        <Stack direction="row" spacing={0.5} justifyContent="center" sx={{ mb: 1.5 }}>
-          {(["A", "B"] as const).map((d) => (
-            <Box
-              key={d}
-              onClick={() => setMobileDeck(d)}
-              sx={{
-                cursor: "pointer",
-                px: 2, py: 0.5,
-                borderRadius: "3px",
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: 2,
-                color: mobileDeck === d ? "#fff" : alpha("#fff", 0.35),
-                border: `1px solid ${alpha(red, mobileDeck === d ? 0.7 : 0.2)}`,
-                background: mobileDeck === d
-                  ? `linear-gradient(180deg, ${alpha(red, 0.45)}, ${alpha(red, 0.2)})`
-                  : alpha("#0a0a0a", 0.8),
-                boxShadow: mobileDeck === d
-                  ? `0 0 10px ${alpha(red, 0.3)}, inset 0 1px 0 ${alpha("#fff", 0.1)}`
-                  : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
-                transition: "all 0.15s ease",
-              }}
-            >
-              DECK {d}
-            </Box>
-          ))}
+        {/* ─ Row 1: Both decks side by side ─ */}
+        <Stack direction="row" spacing={1} alignItems="flex-start">
+          <MobileDeckCol id="A" dkProps={deckA} ctrl={ctrlA} engRef={engineARef} accent="red" />
+          <MobileDeckCol id="B" dkProps={deckB} ctrl={ctrlB} engRef={engineBRef} accent="redDark" />
         </Stack>
 
-        {/* Compact turntable + track info row */}
-        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5, px: 0.5 }}>
-          <Box sx={{ flexShrink: 0 }}>
-            <Turntable
-              deckId={mobileDeck}
-              size={80}
-              isPlaying={activeDeckProps.isPlaying}
-              coverUrl={activeDeckProps.track?.cover}
-              bpm={activeDeckProps.track?.bpm ?? 120}
-              duration={activeDeckProps.track?.duration}
-              accentColor={mobileDeck === "A" ? "red" : "redDark"}
-              audioUrl={activeDeckProps.track?.audioUrl || activeDeckProps.track?.preview}
-              volume={activeDeckProps.volume}
-              autoScratchTrigger={activeDeckProps.autoScratchTrigger}
-              onScratchStart={activeDeckProps.onScratchStart}
-              onScratchEnd={activeDeckProps.onScratchEnd}
-              onTimeUpdate={activeDeckProps.onTimeUpdate}
-              engineRef={activeEngineRef}
-            />
-          </Box>
-          <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.25}>
-            <Stack direction="row" alignItems="baseline" spacing={0.75}>
-              <Typography variant="h6" sx={{ fontFamily: "monospace", color: redLight, fontWeight: 800, lineHeight: 1, fontSize: 18 }}>
-                {activeDeckProps.track?.bpm
-                  ? (activeDeckProps.track.bpm * activeCtrl.tempo * (1 + activeCtrl.pitch * 0.03)).toFixed(1)
-                  : "---.-"}
-              </Typography>
-              <Typography variant="caption" sx={{ color: "text.disabled", fontSize: 9 }}>BPM</Typography>
-            </Stack>
-            {activeDeckProps.track ? (
-              <>
-                <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }}>
-                  {activeDeckProps.track.title}
-                </Typography>
-                <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 11 }}>
-                  {activeDeckProps.track.artist}
-                </Typography>
-              </>
-            ) : (
-              <Typography variant="caption" sx={{ color: "text.disabled" }}>— empty —</Typography>
-            )}
-          </Stack>
-        </Stack>
-
-        {/* Waveforms — both always rendered (audio engines stay mounted) */}
-        <Stack spacing={0.5}>
+        {/* ─ Waveforms ─ */}
+        <Stack spacing={0.25} sx={{ mt: 1 }}>
           {waveformA}
-          <Box sx={{ borderBottom: `1px solid ${alpha(red, 0.18)}` }} />
+          <Box sx={{ borderBottom: `1px solid ${alpha(red, 0.15)}` }} />
           {waveformB}
         </Stack>
 
         {progressBar}
-        {transportButtons}
-        {effectsGrid}
 
-        {/* Compact controls strip — tempo, pitch, EQ, cue, loop */}
-        <Box sx={{ ...machinedSeam, mt: 2, mb: 1.5 }} />
+        {/* ─ Transport row: skip + counter + effects, tight ─ */}
+        <Stack direction="row" alignItems="center" justifyContent="center" spacing={1.5} sx={{ mt: 1.5, mb: 0.5 }}>
+          <IconButton onClick={onSkipPrev} disabled={!canSkipPrev} size="small"
+            sx={{ width: 36, height: 36, color: "text.secondary", ...machinedButton, borderRadius: 1.5, border: `1px solid ${alpha(red, 0.35)}`, "&.Mui-disabled": { opacity: 0.25 } }}
+          >
+            <SkipPreviousIcon sx={{ fontSize: 20 }} />
+          </IconButton>
 
-        {/* Tempo + Pitch row */}
-        <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="center" sx={{ mb: 1.5 }}>
-          <Knob value={activeCtrl.tempo} onChange={activeCtrl.setTempo} min={0.85} max={1.15} label="TEMPO" size={34} centerDetent />
-          <Box sx={{ height: 60, display: "flex", alignItems: "center", gap: 0.5 }}>
+          <Stack alignItems="center" sx={{ minWidth: 50 }}>
+            <Typography sx={{ color: "text.disabled", fontFamily: "monospace", fontSize: 10 }}>
+              {currentIndex + 1}/{playlistLength}
+            </Typography>
+            {isCrossfading && (
+              <Typography sx={{ color: redLight, fontSize: 8, animation: "mui-pulse 1.2s ease-in-out infinite", "@keyframes mui-pulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.4 } } }}>
+                xfading
+              </Typography>
+            )}
+          </Stack>
+
+          <IconButton onClick={onSkipNext} disabled={!canSkipNext} size="small"
+            sx={{ width: 36, height: 36, color: "text.secondary", ...machinedButton, borderRadius: 1.5, border: `1px solid ${alpha(red, 0.35)}`, "&.Mui-disabled": { opacity: 0.25 } }}
+          >
+            <SkipNextIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+
+          {/* Effect pads inline */}
+          {effects.length > 0 && onTriggerEffect && (
+            <Stack direction="row" spacing={0.5}>
+              {effects.map((eff) => {
+                const isActive = playingEffects?.has(eff.name) ?? false;
+                return (
+                  <Tooltip key={eff.name} title={eff.label} placement="top" arrow
+                    slotProps={{ tooltip: { sx: { bgcolor: alpha("#1a1a1a", 0.95), color: "#fff", fontSize: 9, fontWeight: 700, border: `1px solid ${alpha(red, 0.3)}` } }, arrow: { sx: { color: alpha("#1a1a1a", 0.95) } } }}
+                  >
+                    <Box
+                      role="button"
+                      onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
+                      sx={{
+                        cursor: "pointer", userSelect: "none", width: 28, height: 28, borderRadius: "2px",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        background: isActive
+                          ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
+                          : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
+                        border: `1px solid ${alpha(isActive ? red : "#333", isActive ? 0.5 : 0.35)}`,
+                        boxShadow: isActive ? `0 0 10px ${alpha(red, 0.3)}` : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                        "&:active": { transform: "scale(0.9)" },
+                      }}
+                    >
+                      <Box sx={{
+                        width: 7, height: 7, borderRadius: "50%",
+                        border: `1px solid ${alpha("#222", 0.8)}`,
+                        background: isActive
+                          ? `radial-gradient(circle at 40% 35%, #ff6b6b, ${red} 50%, #8b0000)`
+                          : `radial-gradient(circle at 40% 35%, #3a1515, #1a0808 70%)`,
+                        boxShadow: isActive
+                          ? `0 0 3px 1px ${alpha(red, 0.9)}, 0 0 8px 2px ${alpha(red, 0.4)}`
+                          : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                      }} />
+                    </Box>
+                  </Tooltip>
+                );
+              })}
+            </Stack>
+          )}
+        </Stack>
+
+        <Box sx={{ ...machinedSeam, my: 1 }} />
+
+        {/* ─ Control strip: A/B selector + tempo/pitch/sync + EQ popup + cue/loop ─ */}
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 0.25 }}>
+          {/* Deck selector for controls */}
+          <Stack spacing={0.25}>
+            {(["A", "B"] as const).map((d) => (
+              <Box
+                key={d}
+                onClick={() => setMobileDeck(d)}
+                sx={{
+                  cursor: "pointer", width: 22, height: 18, borderRadius: "2px",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 8, fontWeight: 800, letterSpacing: 1,
+                  color: mobileDeck === d ? "#fff" : alpha("#fff", 0.3),
+                  border: `1px solid ${alpha(red, mobileDeck === d ? 0.7 : 0.15)}`,
+                  background: mobileDeck === d ? alpha(red, 0.35) : alpha("#000", 0.6),
+                  transition: "all 0.12s",
+                }}
+              >
+                {d}
+              </Box>
+            ))}
+          </Stack>
+
+          {/* Tempo knob */}
+          <Knob value={activeCtrl.tempo} onChange={activeCtrl.setTempo} min={0.85} max={1.15} label="TMP" size={28} centerDetent />
+
+          {/* Pitch micro-slider */}
+          <Box sx={{ height: 44, display: "flex", alignItems: "center", gap: 0.25 }}>
             <Slider
               orientation="vertical"
               value={activeCtrl.pitch}
               min={-1} max={1} step={0.01}
               onChange={(_, v) => activeCtrl.setPitch(v as number)}
               sx={{
-                height: 54, color: red,
-                "& .MuiSlider-thumb": { width: 14, height: 8, borderRadius: 0.5, bgcolor: "#eee", border: `1px solid ${alpha(red, 0.6)}` },
-                "& .MuiSlider-rail": { opacity: 1, bgcolor: alpha("#000", 0.8) },
-                "& .MuiSlider-track": { border: "none", bgcolor: alpha(red, 0.5) },
+                height: 40, color: red,
+                "& .MuiSlider-thumb": { width: 12, height: 6, borderRadius: 0.5, bgcolor: "#eee", border: `1px solid ${alpha(red, 0.6)}` },
+                "& .MuiSlider-rail": { opacity: 1, bgcolor: alpha("#000", 0.8), width: 3 },
+                "& .MuiSlider-track": { border: "none", bgcolor: alpha(red, 0.5), width: 3 },
               }}
             />
-            <Typography variant="caption" sx={{ fontSize: 7, color: "text.disabled", letterSpacing: 1, writingMode: "vertical-rl" }}>PITCH</Typography>
+            <Typography sx={{ fontSize: 6, color: "text.disabled", letterSpacing: 0.5, writingMode: "vertical-rl" }}>PIT</Typography>
           </Box>
+
+          {/* SYNC */}
           <Button
             onClick={activeCtrl.toggleSync}
             size="small"
             sx={{
-              minWidth: 48, height: 22, fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
+              minWidth: 0, px: 0.75, height: 18, fontSize: 7, fontWeight: 800, letterSpacing: 1,
               color: activeCtrl.sync ? "#fff" : "text.secondary",
-              border: `1px solid ${alpha(red, activeCtrl.sync ? 0.85 : 0.3)}`,
-              borderRadius: 0.75,
+              border: `1px solid ${alpha(red, activeCtrl.sync ? 0.85 : 0.25)}`,
+              borderRadius: 0.5,
               ...machinedButton,
               ...(activeCtrl.sync && {
-                background: `linear-gradient(180deg, ${alpha(red, 0.55)} 0%, ${alpha(theme.palette.primary.dark, 0.9)} 100%)`,
-                boxShadow: `0 0 12px ${alpha(red, 0.55)}, inset 0 1px 0 rgba(255,255,255,0.25)`,
+                background: `linear-gradient(180deg, ${alpha(red, 0.55)}, ${alpha(theme.palette.primary.dark, 0.9)})`,
+                boxShadow: `0 0 8px ${alpha(red, 0.5)}`,
               }),
             }}
           >
-            SYNC
+            SYN
           </Button>
-        </Stack>
 
-        {/* EQ knobs row */}
-        <Stack direction="row" spacing={1.5} justifyContent="center" sx={{ mb: 1.5 }}>
-          <Knob value={activeCtrl.eqHigh} onChange={activeCtrl.setEqHigh} min={-12} max={12} label="HIGH" size={34} centerDetent />
-          <Knob value={activeCtrl.eqMid} onChange={activeCtrl.setEqMid} min={-12} max={12} label="MID" size={34} centerDetent />
-          <Knob value={activeCtrl.eqLow} onChange={activeCtrl.setEqLow} min={-12} max={12} label="LOW" size={34} centerDetent />
-        </Stack>
+          {/* EQ popup button */}
+          <Button
+            onClick={(e) => setEqAnchor(eqAnchor ? null : e.currentTarget)}
+            size="small"
+            sx={{
+              minWidth: 0, px: 0.75, height: 18, fontSize: 7, fontWeight: 800, letterSpacing: 1,
+              color: eqOpen ? "#fff" : "text.secondary",
+              border: `1px solid ${alpha(red, eqOpen ? 0.7 : 0.25)}`,
+              borderRadius: 0.5,
+              ...machinedButton,
+              ...(eqOpen && {
+                background: `linear-gradient(180deg, ${alpha(red, 0.4)}, ${alpha(red, 0.15)})`,
+              }),
+            }}
+          >
+            EQ
+          </Button>
 
-        {/* Cue + Loop row */}
-        <Stack direction="row" spacing={1.5} justifyContent="center" sx={{ mb: 1.5 }}>
-          <Stack direction="row" spacing={0.5}>
+          {/* Cue pads */}
+          <Stack direction="row" spacing={0.25}>
             {[0, 1, 2, 3].map((i) => {
               const set = activeCtrl.cues[i] !== null;
               return (
-                <Box
-                  key={i}
-                  onClick={(e) => activeCtrl.toggleCue(i, e.shiftKey)}
+                <Box key={i} onClick={(e) => activeCtrl.toggleCue(i, e.shiftKey)}
                   sx={{
-                    width: 24, height: 20,
-                    border: `1px solid ${alpha(red, set ? 0.8 : 0.3)}`,
-                    borderRadius: 0.5,
+                    width: 18, height: 16, borderRadius: "2px",
+                    border: `1px solid ${alpha(red, set ? 0.8 : 0.2)}`,
                     bgcolor: set ? alpha(red, 0.35) : alpha("#000", 0.6),
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 8, fontFamily: "monospace", fontWeight: 700,
-                    color: set ? "#fff" : "text.disabled",
-                    cursor: "pointer",
+                    fontSize: 7, fontFamily: "monospace", fontWeight: 700,
+                    color: set ? "#fff" : alpha("#fff", 0.25), cursor: "pointer",
                   }}
                 >
                   {i + 1}
@@ -1112,20 +1194,46 @@ export function DeckLayout({
               );
             })}
           </Stack>
-          <Stack direction="row" spacing={0.5}>
-            <LoopButton label="IN" onClick={activeCtrl.markLoopIn} active={activeCtrl.loopIn !== null} />
-            <LoopButton label="OUT" onClick={activeCtrl.markLoopOut} active={activeCtrl.loopOut !== null} />
-            <LoopButton label="LOOP" onClick={activeCtrl.toggleLoop} active={activeCtrl.loopActive} disabled={activeCtrl.loopIn === null || activeCtrl.loopOut === null} />
+
+          {/* Loop mini buttons */}
+          <Stack direction="row" spacing={0.25}>
+            <LoopButton label="I" onClick={activeCtrl.markLoopIn} active={activeCtrl.loopIn !== null} />
+            <LoopButton label="O" onClick={activeCtrl.markLoopOut} active={activeCtrl.loopOut !== null} />
+            <LoopButton label="L" onClick={activeCtrl.toggleLoop} active={activeCtrl.loopActive} disabled={activeCtrl.loopIn === null || activeCtrl.loopOut === null} />
           </Stack>
         </Stack>
 
-        {/* Crossfader full-width */}
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 0.5 }}>
-          <VerticalMini value={mobileDeck === "A" ? gainA : gainB} onChange={mobileDeck === "A" ? setGainA : setGainB} label="GAIN" />
+        {/* EQ Popper */}
+        <Popper open={eqOpen} anchorEl={eqAnchor} placement="top" sx={{ zIndex: 1300 }}>
+          <ClickAwayListener onClickAway={() => setEqAnchor(null)}>
+            <Paper
+              elevation={12}
+              sx={{
+                p: 1.5, mb: 1,
+                borderRadius: 2,
+                border: `1px solid ${alpha(red, 0.4)}`,
+                ...darkBrushedSub,
+              }}
+            >
+              <Typography sx={{ fontSize: 7, fontWeight: 800, letterSpacing: 2, color: alpha(redLight, 0.5), textAlign: "center", mb: 1 }}>
+                EQ — DECK {mobileDeck}
+              </Typography>
+              <Stack direction="row" spacing={1.5} justifyContent="center">
+                <Knob value={activeCtrl.eqHigh} onChange={activeCtrl.setEqHigh} min={-12} max={12} label="HI" size={32} centerDetent />
+                <Knob value={activeCtrl.eqMid} onChange={activeCtrl.setEqMid} min={-12} max={12} label="MID" size={32} centerDetent />
+                <Knob value={activeCtrl.eqLow} onChange={activeCtrl.setEqLow} min={-12} max={12} label="LO" size={32} centerDetent />
+              </Stack>
+            </Paper>
+          </ClickAwayListener>
+        </Popper>
+
+        {/* ─ Crossfader row ─ */}
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 1, px: 0.5 }}>
+          <VerticalMini value={gainA} onChange={setGainA} label="A" />
           <Box sx={{ flex: 1 }}>
             <Crossfader value={crossfaderValue} onChange={onCrossfaderChange} />
           </Box>
-          <VerticalMini value={mobileDeck === "A" ? trimA : trimB} onChange={mobileDeck === "A" ? setTrimA : setTrimB} label="TRIM" />
+          <VerticalMini value={gainB} onChange={setGainB} label="B" />
         </Stack>
       </Paper>
     );
