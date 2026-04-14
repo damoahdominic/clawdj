@@ -903,7 +903,7 @@ function RadioView(props: RadioViewProps) {
         bgcolor: "background.default",
       }}
     >
-      <LobsterBackground isPlaying={isPlaying} bpm={currentBpm} />
+      {/* Background removed — keep it clean */}
 
       <Box sx={{ position: "fixed", inset: 0, bgcolor: alpha("#000", 0.25), zIndex: 1, pointerEvents: "none" }} />
 
