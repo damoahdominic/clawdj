@@ -37,6 +37,12 @@ const EFFECTS: EffectDef[] = [
   { name: "don", label: "Don", url: "/effects/don.mp3" },
   { name: "gunshot", label: "Gunshot", url: "/effects/gunshot.mp3" },
   { name: "scratch_that", label: "Scratch That", url: "/effects/scratch_that.mp3" },
+  { name: "glass_siren", label: "Glass Siren", url: "/effects/glass_siren.mp3" },
+  { name: "laser_gun", label: "Laser Gun", url: "/effects/laser_gun.mp3" },
+  { name: "stutter_siren", label: "Stutter Siren", url: "/effects/stutter_siren.mp3" },
+  { name: "sharp_siren", label: "Sharp Siren", url: "/effects/sharp_siren.mp3" },
+  { name: "gun_cocked", label: "Gun Cocked", url: "/effects/gun_cocked.mp3" },
+  { name: "airhorn", label: "Airhorn", url: "/effects/airhorn.mp3" },
 ];
 
 interface PlaylistTrack {
