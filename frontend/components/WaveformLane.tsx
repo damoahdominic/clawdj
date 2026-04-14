@@ -14,14 +14,13 @@ interface WaveformLaneProps {
   cuePoints?: number[];
   /** Seconds per viewport width (how much track is visible at once). */
   windowSeconds?: number;
-  /** Actual track duration in seconds (used for cue alignment). */
+  /** Actual track duration in seconds. */
   durationSec?: number;
   /** Loop region in seconds (drawn as a shaded band). */
   loopRegion?: { inSec: number; outSec: number } | null;
   /** Whether the deck is currently playing — drives time extrapolation. */
   isPlaying?: boolean;
-  /** Enable drag-to-scratch on this lane. When all three are provided the
-   *  canvas becomes an interactive scratch surface. */
+  /** Drag-to-scratch on this lane. */
   onScratchStart?: (seconds: number) => void;
   onScratchMove?: (speed: number, isReversed: boolean, seconds: number) => void;
   onScratchEnd?: (seconds: number) => void;
@@ -30,156 +29,16 @@ interface WaveformLaneProps {
 // ── Module-level peak cache so switching back to a track is instant ───────
 const peakCache = new Map<string, number[]>();
 
-interface DrawParams {
-  offscreenPlayed: HTMLCanvasElement | null;
-  offscreenMain: HTMLCanvasElement | null;
-  offscreenLogicalWidth: number;
-  width: number;
-  height: number;
-  windowSeconds: number;
-  durationSec: number;
-  loopRegion: { inSec: number; outSec: number } | null;
-  red: string;
-}
-
 /**
- * Build a single offscreen canvas with the full waveform rendered once at a
- * high pixel-per-second rate so that scrolling it each frame via drawImage
- * scales linearly with sub-pixel precision.
+ * Decode the audio file once and reduce it to a normalized array of peaks.
+ * Cached by URL.
  */
-function buildOffscreen(
-  peaks: number[],
-  color: string,
-  logicalWidth: number,
-  height: number,
-): HTMLCanvasElement {
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.floor(logicalWidth * dpr));
-  canvas.height = Math.max(1, Math.floor(height * dpr));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.25;
-  ctx.lineCap = "round";
-  const mid = height / 2;
-  const amp = height * 0.48;
-  const n = peaks.length;
-  const stride = logicalWidth / n;
-  // Draw one thin bar per peak bucket, centered on its slot.
-  for (let i = 0; i < n; i++) {
-    const x = i * stride + stride / 2;
-    const h = Math.max(0.5, peaks[i] * amp);
-    ctx.beginPath();
-    ctx.moveTo(x, mid - h);
-    ctx.lineTo(x, mid + h);
-    ctx.stroke();
-  }
-  return canvas;
-}
-
-function drawFrame(canvas: HTMLCanvasElement | null, progress: number, params: DrawParams) {
-  if (!canvas) return;
-  const { offscreenPlayed, offscreenMain, offscreenLogicalWidth, width, height, windowSeconds, durationSec, loopRegion, red } = params;
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, width, height);
-
-  if (!offscreenPlayed || !offscreenMain) {
-    ctx.fillStyle = "#181818";
-    ctx.fillRect(0, height / 2 - 1, width, 2);
-    return;
-  }
-
-  const dur = durationSec > 0 ? durationSec : Math.max(1, windowSeconds * 2);
-  const pxPerSec = width / windowSeconds;
-  const playSec = progress * dur;
-  const viewStartSec = playSec - windowSeconds / 2;
-
-  // Map seconds → offscreen logical pixels.
-  const srcPxPerSec = offscreenLogicalWidth / dur;
-  const srcViewX = viewStartSec * srcPxPerSec;
-  const srcViewW = windowSeconds * srcPxPerSec;
-  const srcPlayheadX = playSec * srcPxPerSec;
-  // Backing-store coords for the offscreen (DPR-aware).
-  const srcScale = offscreenPlayed.width / offscreenLogicalWidth;
-
-  const playheadDstX = width / 2;
-
-  // Helper: draw a logical-x range from an offscreen into [dstX0..dstX1].
-  const drawSlice = (
-    src: HTMLCanvasElement,
-    srcLogicalX0: number,
-    srcLogicalX1: number,
-    dstX0: number,
-    dstX1: number,
-  ) => {
-    const logW = srcLogicalX1 - srcLogicalX0;
-    const dstW = dstX1 - dstX0;
-    if (logW <= 0 || dstW <= 0) return;
-    // Clip against offscreen bounds.
-    let s0 = srcLogicalX0;
-    let s1 = srcLogicalX1;
-    let d0 = dstX0;
-    let d1 = dstX1;
-    const scaleLD = dstW / logW;
-    if (s0 < 0) { d0 = dstX0 + (-s0) * scaleLD; s0 = 0; }
-    if (s1 > offscreenLogicalWidth) { d1 = dstX1 - (s1 - offscreenLogicalWidth) * scaleLD; s1 = offscreenLogicalWidth; }
-    if (s1 <= s0 || d1 <= d0) return;
-    ctx.drawImage(
-      src,
-      s0 * srcScale, 0, (s1 - s0) * srcScale, src.height,
-      d0, 0, d1 - d0, height,
-    );
-  };
-
-  // Played half (left of centre): srcViewX → srcPlayheadX mapped to 0 → playheadDstX.
-  drawSlice(offscreenPlayed, srcViewX, srcPlayheadX, 0, playheadDstX);
-  // Unplayed half (right of centre).
-  drawSlice(offscreenMain, srcPlayheadX, srcViewX + srcViewW, playheadDstX, width);
-
-  if (loopRegion && dur > 0) {
-    const loopX1 = (loopRegion.inSec - viewStartSec) * pxPerSec;
-    const loopX2 = (loopRegion.outSec - viewStartSec) * pxPerSec;
-    if (loopX2 > 0 && loopX1 < width) {
-      ctx.fillStyle = `${red}33`;
-      ctx.fillRect(Math.max(0, loopX1), 0, Math.min(width, loopX2) - Math.max(0, loopX1), height);
-      ctx.strokeStyle = red;
-      ctx.lineWidth = 1;
-      if (loopX1 >= 0 && loopX1 <= width) {
-        ctx.beginPath(); ctx.moveTo(loopX1, 0); ctx.lineTo(loopX1, height); ctx.stroke();
-      }
-      if (loopX2 >= 0 && loopX2 <= width) {
-        ctx.beginPath(); ctx.moveTo(loopX2, 0); ctx.lineTo(loopX2, height); ctx.stroke();
-      }
-    }
-  }
-
-  // Static grid overlay.
-  ctx.strokeStyle = "rgba(255,255,255,0.05)";
-  ctx.lineWidth = 1;
-  for (let x = (width / 2) % 40; x < width; x += 40) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-  }
-}
-
-/**
- * Decode the audio file (via OfflineAudioContext) once and reduce it to a
- * normalized array of ~2000 peak samples. Cached by URL.
- */
-async function computePeaks(url: string, bucketCount = 2000): Promise<number[]> {
+async function computePeaks(url: string, bucketCount = 4000): Promise<number[]> {
   const cached = peakCache.get(url);
   if (cached) return cached;
 
   const res = await fetch(url);
   const arrayBuf = await res.arrayBuffer();
-  // Use a short-lived context just for decoding.
   const AudioCtor =
     window.AudioContext ||
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -229,42 +88,41 @@ export function WaveformLane({
   const waveMain = accent === "bright" ? "#c9c9c9" : "#888";
   const wavePlayed = accent === "bright" ? theme.palette.primary.light : theme.palette.primary.dark;
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Two DOM canvases translated together. `played-layer` div is clipped to
+  // the left half of the container (via clip-path), `main-layer` to the right
+  // — so they paint the played/unplayed colors without any per-frame splicing.
+  const playedCanvasRef = useRef<HTMLCanvasElement>(null);
+  const mainCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [width, setWidth] = useState(600);
 
-  // Baseline progress from the parent, plus the wallclock time it arrived.
-  // The RAF loop extrapolates forward from this using elapsed wallclock so
-  // scrolling is buttery even though the parent only polls at ~17Hz.
+  // Time extrapolation state — RAF advances progress between polls so
+  // scrolling stays smooth even though audio `currentTime` updates lazily.
   const baseProgressRef = useRef(progress);
   const baseProgressTimeRef = useRef<number>(
     typeof performance !== "undefined" ? performance.now() : Date.now()
   );
   const isPlayingRef = useRef(isPlaying);
   const durationSecRef = useRef(durationSec);
+  const pxPerSecRef = useRef(width / windowSeconds);
+  useEffect(() => { pxPerSecRef.current = width / windowSeconds; }, [width, windowSeconds]);
 
-  // Drag-to-scratch local state. When dragging, overrideProgressRef takes
-  // precedence in the RAF loop so the waveform scrolls with the pointer.
+  // Drag-to-scratch state.
   const draggingRef = useRef(false);
   const overrideProgressRef = useRef<number | null>(null);
   const dragLastXRef = useRef(0);
   const dragLastTsRef = useRef(0);
   const dragSecRef = useRef(0);
-  const dragLastDirRef = useRef<1 | -1>(1);
 
   useEffect(() => {
-    // Only reset the extrapolation baseline when the incoming progress
-    // differs meaningfully from what we'd have predicted. This lets the RAF
-    // loop keep ticking forward smoothly instead of jumping back every poll.
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     const dur = durationSecRef.current;
     const predicted = isPlayingRef.current && dur > 0
       ? baseProgressRef.current + ((now - baseProgressTimeRef.current) / 1000) / dur
       : baseProgressRef.current;
     const drift = Math.abs(progress - predicted);
-    // Snap on seeks, paused updates, or significant drift; otherwise ignore
-    // tiny corrections so playback motion stays uniform.
     if (!isPlayingRef.current || drift > 0.01) {
       baseProgressRef.current = progress;
       baseProgressTimeRef.current = now;
@@ -273,18 +131,15 @@ export function WaveformLane({
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
-    // When play state flips, re-anchor so extrapolation starts from here.
     baseProgressRef.current = progress;
     baseProgressTimeRef.current =
       typeof performance !== "undefined" ? performance.now() : Date.now();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying]);
 
-  useEffect(() => {
-    durationSecRef.current = durationSec;
-  }, [durationSec]);
+  useEffect(() => { durationSecRef.current = durationSec; }, [durationSec]);
 
-  // Resize observer for the container.
+  // Resize observer.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -297,7 +152,7 @@ export function WaveformLane({
     return () => ro.disconnect();
   }, []);
 
-  // Load peaks when the track changes.
+  // Load peaks when track changes.
   useEffect(() => {
     let cancelled = false;
     if (!audioUrl) { setPeaks(null); return; }
@@ -307,74 +162,60 @@ export function WaveformLane({
     return () => { cancelled = true; };
   }, [audioUrl]);
 
-  // Resize the canvas backing store whenever width/height changes.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-  }, [width, height]);
-
-  // Offscreen canvases: the full waveform pre-rendered once per track + color
-  // scheme. Each frame just slices a window out via drawImage — that's what
-  // gives us pixel-smooth sub-pixel scrolling instead of bucket-snapped bars.
-  const offscreenPlayedRef = useRef<HTMLCanvasElement | null>(null);
-  const offscreenMainRef = useRef<HTMLCanvasElement | null>(null);
-  const offscreenLogicalWidthRef = useRef<number>(0);
+  // Build the full-length pre-rendered waveforms whenever peaks/duration/
+  // window/width/height change. pxPerSec is derived from width/windowSeconds;
+  // we cap it to keep memory sane on very long tracks.
+  const pxPerSec = useMemo(() => {
+    const p = width / windowSeconds;
+    // Cap so a 10 minute track doesn't try to allocate 60k×DPR pixels.
+    return Math.min(p, 60);
+  }, [width, windowSeconds]);
 
   useEffect(() => {
-    if (!peaks || peaks.length === 0) {
-      offscreenPlayedRef.current = null;
-      offscreenMainRef.current = null;
-      offscreenLogicalWidthRef.current = 0;
+    const playedEl = playedCanvasRef.current;
+    const mainEl = mainCanvasRef.current;
+    if (!playedEl || !mainEl) return;
+    if (!peaks || peaks.length === 0 || !durationSec || durationSec <= 0) {
+      // Clear
+      playedEl.width = 1; playedEl.height = 1;
+      mainEl.width = 1; mainEl.height = 1;
       return;
     }
-    // Render at 3 logical px per bucket — plenty of resolution for smooth
-    // scaling down to whatever the visible canvas size ends up being.
-    const logicalWidth = peaks.length * 3;
-    offscreenPlayedRef.current = buildOffscreen(peaks, wavePlayed, logicalWidth, height);
-    offscreenMainRef.current = buildOffscreen(peaks, waveMain, logicalWidth, height);
-    offscreenLogicalWidthRef.current = logicalWidth;
-  }, [peaks, height, wavePlayed, waveMain]);
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const logicalWidth = Math.max(1, Math.ceil(durationSec * pxPerSec));
 
-  // Keep latest draw params in a ref so the RAF loop can read them without
-  // re-subscribing on every prop change.
-  const drawParamsRef = useRef({
-    offscreenPlayed: null as HTMLCanvasElement | null,
-    offscreenMain: null as HTMLCanvasElement | null,
-    offscreenLogicalWidth: 0,
-    width,
-    height,
-    windowSeconds,
-    durationSec,
-    loopRegion,
-    red,
-  });
-  useEffect(() => {
-    drawParamsRef.current = {
-      offscreenPlayed: offscreenPlayedRef.current,
-      offscreenMain: offscreenMainRef.current,
-      offscreenLogicalWidth: offscreenLogicalWidthRef.current,
-      width,
-      height,
-      windowSeconds,
-      durationSec,
-      loopRegion,
-      red,
-    };
-  }, [peaks, width, height, windowSeconds, durationSec, loopRegion, red, wavePlayed, waveMain]);
+    // Played
+    playedEl.width = Math.floor(logicalWidth * dpr);
+    playedEl.height = Math.floor(height * dpr);
+    playedEl.style.width = `${logicalWidth}px`;
+    playedEl.style.height = `${height}px`;
+    const pCtx = playedEl.getContext("2d");
+    if (pCtx) {
+      pCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintInto(pCtx, peaks, wavePlayed, logicalWidth, durationSec, height, pxPerSec);
+    }
 
-  // Single RAF loop: redraws at the committed progress position every frame.
-  // No easing — the quantized progress effect handles all smoothing.
+    // Main (unplayed)
+    mainEl.width = Math.floor(logicalWidth * dpr);
+    mainEl.height = Math.floor(height * dpr);
+    mainEl.style.width = `${logicalWidth}px`;
+    mainEl.style.height = `${height}px`;
+    const mCtx = mainEl.getContext("2d");
+    if (mCtx) {
+      mCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintInto(mCtx, peaks, waveMain, logicalWidth, durationSec, height, pxPerSec);
+    }
+  }, [peaks, durationSec, pxPerSec, height, wavePlayed, waveMain]);
+
+  // RAF: compute the current playhead position, translate both canvases.
   useEffect(() => {
     let raf = 0;
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      const playedEl = playedCanvasRef.current;
+      const mainEl = mainCanvasRef.current;
+      if (!playedEl || !mainEl) return;
 
-      // When the user is scratching the waveform, their drag is authoritative.
       let p: number;
       if (overrideProgressRef.current !== null) {
         p = overrideProgressRef.current;
@@ -388,43 +229,63 @@ export function WaveformLane({
         p = baseProgressRef.current;
       }
 
-      drawFrame(canvasRef.current, p, drawParamsRef.current);
+      const dur = durationSecRef.current;
+      const playSec = p * dur;
+      // Translate so that x=playSec*pxPerSec in the canvas lands at container
+      // centre. Using translate3d to force a GPU compositor layer.
+      const tx = width / 2 - playSec * pxPerSec;
+      const transform = `translate3d(${tx}px, 0, 0)`;
+      playedEl.style.transform = transform;
+      mainEl.style.transform = transform;
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [width, pxPerSec]);
 
-  // Memoized static values used by the cue-marker overlay (don't need RAF).
+  // Cue markers.
   const windowPctStatic = useMemo(
     () => (durationSec > 0 ? windowSeconds / durationSec : 1),
     [durationSec, windowSeconds]
   );
-
-  // Cue point markers positioned relative to scroll window.
-  // Uses prop progress (not smoothed) — cue dots don't need sub-frame easing.
   const cueMarkers = cuePoints.map((p, i) => {
     const offset = p - progress;
     const leftPct = 50 + (offset / windowPctStatic) * 50;
     if (leftPct < -2 || leftPct > 102) return null;
     return (
-      <Box
-        key={i}
-        sx={{
-          position: "absolute",
-          top: 4,
-          left: `${leftPct}%`,
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          bgcolor: red,
-          transform: "translateX(-50%)",
-          boxShadow: `0 0 6px ${red}`,
-          pointerEvents: "none",
-        }}
-      />
+      <Box key={i} sx={{
+        position: "absolute", top: 4, left: `${leftPct}%`,
+        width: 7, height: 7, borderRadius: "50%",
+        bgcolor: red, transform: "translateX(-50%)",
+        boxShadow: `0 0 6px ${red}`, pointerEvents: "none",
+      }} />
     );
   });
+
+  // Loop region — positioned by translating a span inside the same scroll layer.
+  const loopEl = loopRegion && durationSec > 0 ? (() => {
+    const tx0 = width / 2 - (baseProgressRef.current * durationSec) * pxPerSec;
+    const left = tx0 + loopRegion.inSec * pxPerSec;
+    const w = (loopRegion.outSec - loopRegion.inSec) * pxPerSec;
+    // We draw it in a wrapper that also gets transform-animated by RAF is
+    // overkill; simpler: attach to same transform by placing inside the
+    // played layer. But that'd tint by clip. Easiest: render here and rely on
+    // cue-marker-style positioning using `progress` prop (coarse is OK for a
+    // loop band).
+    const leftPct = ((loopRegion.inSec / durationSec) - progress) / windowPctStatic * 50 + 50;
+    const wPct = (loopRegion.outSec - loopRegion.inSec) / durationSec / windowPctStatic * 50;
+    void left; void w; void tx0;
+    return (
+      <Box sx={{
+        position: "absolute", top: 0, height: "100%",
+        left: `${leftPct}%`, width: `${wPct * 2}%`,
+        bgcolor: `${red}33`,
+        borderLeft: `1px solid ${red}`,
+        borderRight: `1px solid ${red}`,
+        pointerEvents: "none",
+      }} />
+    );
+  })() : null;
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!scratchable || !durationSec) return;
@@ -443,23 +304,15 @@ export function WaveformLane({
     const rect = e.currentTarget.getBoundingClientRect();
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     const dt = Math.max(1, now - dragLastTsRef.current);
-    // Positive dx (user moved the pointer left) = forward scrub because the
-    // waveform normally scrolls leftward as time advances past the playhead.
     const dx = dragLastXRef.current - e.clientX;
-    const pxPerSec = rect.width / windowSeconds;
-    const dSec = pxPerSec > 0 ? dx / pxPerSec : 0;
-
+    const pps = rect.width / windowSeconds;
+    const dSec = pps > 0 ? dx / pps : 0;
     dragSecRef.current = Math.max(0, Math.min(durationSec, dragSecRef.current + dSec));
     overrideProgressRef.current = dragSecRef.current / durationSec;
-
-    // Speed in natural-playback units (1 == normal forward rate).
     const speed = dSec / (dt / 1000);
     const isReversed = speed < 0;
-    dragLastDirRef.current = isReversed ? -1 : 1;
-
     dragLastXRef.current = e.clientX;
     dragLastTsRef.current = now;
-
     onScratchMove?.(speed, isReversed, dragSecRef.current);
   };
 
@@ -470,6 +323,17 @@ export function WaveformLane({
     const finalSec = dragSecRef.current;
     overrideProgressRef.current = null;
     onScratchEnd?.(finalSec);
+  };
+
+  const canvasStyle: React.CSSProperties = {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    height,
+    willChange: "transform",
+    transform: "translate3d(0,0,0)",
+    pointerEvents: "none",
+    imageRendering: "auto",
   };
 
   return (
@@ -492,22 +356,77 @@ export function WaveformLane({
         "&:active": scratchable ? { cursor: "grabbing" } : undefined,
       }}
     >
-      <canvas ref={canvasRef} style={{ display: "block", pointerEvents: "none" }} />
+      {/* Played layer — clipped to left half of the container */}
+      <Box sx={{
+        position: "absolute", inset: 0,
+        clipPath: "inset(0 50% 0 0)",
+        WebkitClipPath: "inset(0 50% 0 0)",
+      }}>
+        <canvas ref={playedCanvasRef} style={canvasStyle} />
+      </Box>
+      {/* Unplayed layer — clipped to right half */}
+      <Box sx={{
+        position: "absolute", inset: 0,
+        clipPath: "inset(0 0 0 50%)",
+        WebkitClipPath: "inset(0 0 0 50%)",
+      }}>
+        <canvas ref={mainCanvasRef} style={canvasStyle} />
+      </Box>
+
+      {/* Static grid */}
+      <Box sx={{
+        position: "absolute", inset: 0, pointerEvents: "none",
+        backgroundImage: "repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 40px)",
+        backgroundPosition: `${(width / 2) % 40}px 0`,
+      }} />
+
+      {loopEl}
       {cueMarkers}
-      {/* Fixed center playhead */}
-      <Box
-        sx={{
-          position: "absolute",
-          top: 0,
-          left: "50%",
-          width: 2,
-          height: "100%",
-          bgcolor: red,
-          boxShadow: `0 0 8px ${red}`,
-          transform: "translateX(-50%)",
-          pointerEvents: "none",
-        }}
-      />
+
+      {/* Fixed centre playhead */}
+      <Box sx={{
+        position: "absolute", top: 0, left: "50%",
+        width: 2, height: "100%",
+        bgcolor: red, boxShadow: `0 0 8px ${red}`,
+        transform: "translateX(-50%)",
+        pointerEvents: "none",
+      }} />
     </Box>
   );
+}
+
+// Helper shared by the two paint passes.
+function paintInto(
+  ctx: CanvasRenderingContext2D,
+  peaks: number[],
+  color: string,
+  logicalWidth: number,
+  durationSec: number,
+  height: number,
+  pxPerSec: number,
+) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.25;
+  ctx.lineCap = "round";
+  const mid = height / 2;
+  const amp = height * 0.46;
+  const n = peaks.length;
+  const stepPx = 1.5;
+  const secPerPx = 1 / pxPerSec;
+  for (let x = 0; x < logicalWidth; x += stepPx) {
+    const t0 = x * secPerPx;
+    const t1 = (x + stepPx) * secPerPx;
+    const i0 = Math.floor((t0 / durationSec) * n);
+    const i1 = Math.min(n, Math.ceil((t1 / durationSec) * n));
+    let peak = 0;
+    for (let i = i0; i < i1; i++) {
+      const v = peaks[i];
+      if (v > peak) peak = v;
+    }
+    const h = Math.max(0.5, peak * amp);
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, mid - h);
+    ctx.lineTo(x + 0.5, mid + h);
+    ctx.stroke();
+  }
 }
