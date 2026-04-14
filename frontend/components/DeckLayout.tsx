@@ -810,6 +810,7 @@ export function DeckLayout({
   );
 
   const effectsPadSize = isMobile ? 34 : 38;
+  const rainbowColors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#f43f5e"];
   const effectsGrid = effects.length > 0 && onTriggerEffect ? (
     <Box sx={{ mt: 1.5 }}>
       <Box
@@ -837,8 +838,10 @@ export function DeckLayout({
           ].join(", "),
         }}
       >
-        {effects.map((eff) => {
+        {effects.map((eff, idx) => {
           const isActive = playingEffects?.has(eff.name) ?? false;
+          const c = rainbowColors[idx % rainbowColors.length];
+          const cDark = alpha(c, 0.25);
           return (
             <Tooltip key={eff.name} title={eff.label} placement="top" arrow
               slotProps={{
@@ -849,7 +852,7 @@ export function DeckLayout({
                     fontSize: 10,
                     fontWeight: 700,
                     letterSpacing: 1,
-                    border: `1px solid ${alpha(red, 0.3)}`,
+                    border: `1px solid ${alpha(c, 0.4)}`,
                     backdropFilter: "blur(8px)",
                   },
                 },
@@ -872,14 +875,14 @@ export function DeckLayout({
                   background: isActive
                     ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
                     : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
-                  border: `1px solid ${alpha(isActive ? red : "#333", isActive ? 0.5 : 0.35)}`,
+                  border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.6 : 0.35)}`,
                   boxShadow: isActive
-                    ? `0 0 14px ${alpha(red, 0.3)}, inset 0 1px 3px ${alpha("#000", 0.5)}`
+                    ? `0 0 14px ${alpha(c, 0.35)}, inset 0 1px 3px ${alpha("#000", 0.5)}`
                     : `inset 0 1px 3px ${alpha("#000", 0.5)}, 0 1px 0 ${alpha("#222", 0.15)}`,
                   transition: "all 0.1s ease",
                   "&:hover": {
-                    border: `1px solid ${alpha(red, 0.5)}`,
-                    boxShadow: `0 0 8px ${alpha(red, 0.2)}, inset 0 1px 3px ${alpha("#000", 0.5)}`,
+                    border: `1px solid ${alpha(c, 0.6)}`,
+                    boxShadow: `0 0 8px ${alpha(c, 0.25)}, inset 0 1px 3px ${alpha("#000", 0.5)}`,
                   },
                   "&:active": {
                     transform: "scale(0.93)",
@@ -890,30 +893,29 @@ export function DeckLayout({
                 <Box sx={{
                   width: 10,
                   height: 10,
-                  borderRadius: "50%",
+                  borderRadius: "2px",
                   position: "relative",
                   border: `1.5px solid ${alpha("#222", 0.8)}`,
                   background: isActive
-                    ? `radial-gradient(circle at 40% 35%, ${alpha("#ff6b6b", 0.95)}, ${red} 50%, ${alpha("#8b0000", 0.9)} 100%)`
-                    : `radial-gradient(circle at 40% 35%, ${alpha("#3a1515", 0.8)}, ${alpha("#1a0808", 0.9)} 70%)`,
+                    ? `linear-gradient(135deg, ${alpha(c, 0.95)}, ${alpha(c, 0.6)})`
+                    : `linear-gradient(135deg, ${cDark}, ${alpha(c, 0.08)})`,
                   boxShadow: isActive
                     ? [
-                        `0 0 3px 1px ${alpha(red, 0.9)}`,
-                        `0 0 8px 2px ${alpha(red, 0.5)}`,
-                        `0 0 16px 4px ${alpha(red, 0.25)}`,
-                        `inset 0 -1px 2px ${alpha("#ff9999", 0.3)}`,
+                        `0 0 3px 1px ${alpha(c, 0.9)}`,
+                        `0 0 8px 2px ${alpha(c, 0.5)}`,
+                        `0 0 16px 4px ${alpha(c, 0.25)}`,
                       ].join(", ")
                     : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
                   transition: "all 0.12s ease",
                   "&::after": isActive ? {
                     content: '""',
                     position: "absolute",
-                    top: "15%",
-                    left: "25%",
-                    width: "35%",
-                    height: "30%",
-                    borderRadius: "50%",
-                    background: `radial-gradient(ellipse, ${alpha("#fff", 0.6)}, transparent)`,
+                    top: "10%",
+                    left: "15%",
+                    width: "40%",
+                    height: "35%",
+                    borderRadius: "1px",
+                    background: `linear-gradient(135deg, ${alpha("#fff", 0.5)}, transparent)`,
                   } : {},
                 }} />
               </Box>
@@ -1033,11 +1035,12 @@ export function DeckLayout({
           {/* Effect pads inline */}
           {effects.length > 0 && onTriggerEffect && (
             <Stack direction="row" spacing={0.5}>
-              {effects.map((eff) => {
+              {effects.map((eff, idx) => {
                 const isActive = playingEffects?.has(eff.name) ?? false;
+                const c = rainbowColors[idx % rainbowColors.length];
                 return (
                   <Tooltip key={eff.name} title={eff.label} placement="top" arrow
-                    slotProps={{ tooltip: { sx: { bgcolor: alpha("#1a1a1a", 0.95), color: "#fff", fontSize: 9, fontWeight: 700, border: `1px solid ${alpha(red, 0.3)}` } }, arrow: { sx: { color: alpha("#1a1a1a", 0.95) } } }}
+                    slotProps={{ tooltip: { sx: { bgcolor: alpha("#1a1a1a", 0.95), color: "#fff", fontSize: 9, fontWeight: 700, border: `1px solid ${alpha(c, 0.4)}` } }, arrow: { sx: { color: alpha("#1a1a1a", 0.95) } } }}
                   >
                     <Box
                       role="button"
@@ -1048,19 +1051,19 @@ export function DeckLayout({
                         background: isActive
                           ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
                           : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
-                        border: `1px solid ${alpha(isActive ? red : "#333", isActive ? 0.5 : 0.35)}`,
-                        boxShadow: isActive ? `0 0 10px ${alpha(red, 0.3)}` : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                        border: `1px solid ${alpha(isActive ? c : "#333", isActive ? 0.6 : 0.35)}`,
+                        boxShadow: isActive ? `0 0 10px ${alpha(c, 0.3)}` : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
                         "&:active": { transform: "scale(0.9)" },
                       }}
                     >
                       <Box sx={{
-                        width: 7, height: 7, borderRadius: "50%",
+                        width: 7, height: 7, borderRadius: "2px",
                         border: `1px solid ${alpha("#222", 0.8)}`,
                         background: isActive
-                          ? `radial-gradient(circle at 40% 35%, #ff6b6b, ${red} 50%, #8b0000)`
-                          : `radial-gradient(circle at 40% 35%, #3a1515, #1a0808 70%)`,
+                          ? `linear-gradient(135deg, ${alpha(c, 0.95)}, ${alpha(c, 0.6)})`
+                          : `linear-gradient(135deg, ${alpha(c, 0.25)}, ${alpha(c, 0.08)})`,
                         boxShadow: isActive
-                          ? `0 0 3px 1px ${alpha(red, 0.9)}, 0 0 8px 2px ${alpha(red, 0.4)}`
+                          ? `0 0 3px 1px ${alpha(c, 0.9)}, 0 0 8px 2px ${alpha(c, 0.4)}`
                           : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
                       }} />
                     </Box>
