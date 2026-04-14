@@ -698,6 +698,7 @@ export function DeckLayout({
       durationSec={durA}
       cuePoints={cuePointsA}
       loopRegion={loopRegionA}
+      isPlaying={deckA.isPlaying}
       onScratchStart={(s) => { engineARef.current?.beginScratch(s); }}
       onScratchMove={(sp, rev, s) => { engineARef.current?.updateScratch(sp, rev, s); }}
       onScratchEnd={(s) => { engineARef.current?.endScratch(s); }}
@@ -712,6 +713,7 @@ export function DeckLayout({
       durationSec={durB}
       cuePoints={cuePointsB}
       loopRegion={loopRegionB}
+      isPlaying={deckB.isPlaying}
       onScratchStart={(s) => { engineBRef.current?.beginScratch(s); }}
       onScratchMove={(sp, rev, s) => { engineBRef.current?.updateScratch(sp, rev, s); }}
       onScratchEnd={(s) => { engineBRef.current?.endScratch(s); }}

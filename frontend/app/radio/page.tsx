@@ -744,14 +744,12 @@ export default function Radio() {
       const dur = isA ? deckADurationRef.current : deckBDurationRef.current;
 
       // Per-deck waveform progress (0–1) — independent of active deck.
-      // Round seconds to 0.05s to eliminate sub-pixel jitter from paused
-      // audio elements reporting slightly different currentTime each tick.
+      // Raw currentTime; the WaveformLane extrapolates between samples using
+      // wallclock time in its RAF loop for buttery scrolling.
       const durA = deckADurationRef.current || 1;
       const durB = deckBDurationRef.current || 1;
-      const secA = Math.round(deckASecondsRef.current * 20) / 20;
-      const secB = Math.round(deckBSecondsRef.current * 20) / 20;
-      setDeckAProgress(Math.max(0, Math.min(1, secA / durA)));
-      setDeckBProgress(Math.max(0, Math.min(1, secB / durB)));
+      setDeckAProgress(Math.max(0, Math.min(1, deckASecondsRef.current / durA)));
+      setDeckBProgress(Math.max(0, Math.min(1, deckBSecondsRef.current / durB)));
 
       if (!dur) return;
       const pct = seconds / dur;

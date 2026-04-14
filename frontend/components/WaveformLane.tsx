@@ -18,6 +18,8 @@ interface WaveformLaneProps {
   durationSec?: number;
   /** Loop region in seconds (drawn as a shaded band). */
   loopRegion?: { inSec: number; outSec: number } | null;
+  /** Whether the deck is currently playing — drives time extrapolation. */
+  isPlaying?: boolean;
   /** Enable drag-to-scratch on this lane. When all three are provided the
    *  canvas becomes an interactive scratch surface. */
   onScratchStart?: (seconds: number) => void;
@@ -155,6 +157,7 @@ export function WaveformLane({
   windowSeconds = 20,
   durationSec = 0,
   loopRegion = null,
+  isPlaying = false,
   onScratchStart,
   onScratchMove,
   onScratchEnd,
@@ -170,9 +173,15 @@ export function WaveformLane({
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [width, setWidth] = useState(600);
 
-  // Progress is pre-quantized by the parent (rounded to 0.05s steps),
-  // so we just track it directly — no easing, no jitter filtering needed.
-  const shownProgressRef = useRef(progress);
+  // Baseline progress from the parent, plus the wallclock time it arrived.
+  // The RAF loop extrapolates forward from this using elapsed wallclock so
+  // scrolling is buttery even though the parent only polls at ~17Hz.
+  const baseProgressRef = useRef(progress);
+  const baseProgressTimeRef = useRef<number>(
+    typeof performance !== "undefined" ? performance.now() : Date.now()
+  );
+  const isPlayingRef = useRef(isPlaying);
+  const durationSecRef = useRef(durationSec);
 
   // Drag-to-scratch local state. When dragging, overrideProgressRef takes
   // precedence in the RAF loop so the waveform scrolls with the pointer.
@@ -184,8 +193,35 @@ export function WaveformLane({
   const dragLastDirRef = useRef<1 | -1>(1);
 
   useEffect(() => {
-    shownProgressRef.current = progress;
+    // Only reset the extrapolation baseline when the incoming progress
+    // differs meaningfully from what we'd have predicted. This lets the RAF
+    // loop keep ticking forward smoothly instead of jumping back every poll.
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const dur = durationSecRef.current;
+    const predicted = isPlayingRef.current && dur > 0
+      ? baseProgressRef.current + ((now - baseProgressTimeRef.current) / 1000) / dur
+      : baseProgressRef.current;
+    const drift = Math.abs(progress - predicted);
+    // Snap on seeks, paused updates, or significant drift; otherwise ignore
+    // tiny corrections so playback motion stays uniform.
+    if (!isPlayingRef.current || drift > 0.01) {
+      baseProgressRef.current = progress;
+      baseProgressTimeRef.current = now;
+    }
   }, [progress]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    // When play state flips, re-anchor so extrapolation starts from here.
+    baseProgressRef.current = progress;
+    baseProgressTimeRef.current =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying]);
+
+  useEffect(() => {
+    durationSecRef.current = durationSec;
+  }, [durationSec]);
 
   // Resize observer for the container.
   useEffect(() => {
@@ -256,9 +292,18 @@ export function WaveformLane({
       raf = requestAnimationFrame(tick);
 
       // When the user is scratching the waveform, their drag is authoritative.
-      const p = overrideProgressRef.current !== null
-        ? overrideProgressRef.current
-        : shownProgressRef.current;
+      let p: number;
+      if (overrideProgressRef.current !== null) {
+        p = overrideProgressRef.current;
+      } else if (isPlayingRef.current && durationSecRef.current > 0) {
+        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+        const elapsed = (now - baseProgressTimeRef.current) / 1000;
+        p = baseProgressRef.current + elapsed / durationSecRef.current;
+        if (p < 0) p = 0;
+        else if (p > 1) p = 1;
+      } else {
+        p = baseProgressRef.current;
+      }
 
       drawFrame(canvasRef.current, p, drawParamsRef.current);
     };
@@ -305,7 +350,7 @@ export function WaveformLane({
     draggingRef.current = true;
     dragLastXRef.current = e.clientX;
     dragLastTsRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
-    dragSecRef.current = (shownProgressRef.current || progress) * durationSec;
+    dragSecRef.current = (baseProgressRef.current || progress) * durationSec;
     overrideProgressRef.current = Math.max(0, Math.min(1, dragSecRef.current / durationSec));
     onScratchStart?.(dragSecRef.current);
   };
