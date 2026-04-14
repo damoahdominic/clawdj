@@ -1201,69 +1201,72 @@ function RadioView(props: RadioViewProps) {
           </Stack>
 
           {(deckATrack || deckBTrack || playlist.length > 0) && (
-            <Stack direction="row" spacing={1.5} alignItems="stretch">
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <DeckLayout
-                  deckA={{
-                    track: deckATrack,
-                    isPlaying: isDeckAPlaying,
-                    isScratchActive: scratchActiveA,
-                    volume: deckAVolume,
-                    autoScratchTrigger: autoScratchA,
-                    onScratchStart: handleDeckAScratchStart,
-                    onScratchEnd: handleDeckAScratchEnd,
-                    onPlayPause: togglePlay,
-                    onTimeUpdate: handleDeckATimeUpdate,
-                  }}
-                  deckB={{
-                    track: deckBTrack,
-                    isPlaying: isDeckBPlaying,
-                    isScratchActive: scratchActiveB,
-                    volume: deckBVolume,
-                    autoScratchTrigger: autoScratchB,
-                    onScratchStart: handleDeckBScratchStart,
-                    onScratchEnd: handleDeckBScratchEnd,
-                    onPlayPause: togglePlay,
-                    onTimeUpdate: handleDeckBTimeUpdate,
-                  }}
-                  crossfaderValue={crossfaderValue}
-                  onCrossfaderChange={handleCrossfaderChange}
-                  onSkipPrev={skipPrev}
-                  onSkipNext={skipNext}
-                  canSkipPrev={currentIndex > 0}
-                  canSkipNext={currentIndex < playlist.length - 1}
-                  isCrossfading={isCrossfading}
-                  currentIndex={currentIndex}
-                  playlistLength={playlist.length}
-                  progress={progress}
-                  switchPoint={switchPoint}
-                  onSwitchPointChange={props.setSwitchPoint}
-                  deckAProgress={props.deckAProgress}
-                  deckBProgress={props.deckBProgress}
-                  crossfadeMs={crossfadeMs}
-                  effects={EFFECTS}
-                  playingEffects={playingEffects}
-                  onTriggerEffect={playEffect}
-                />
-              </Box>
+            <Box sx={{ position: "relative" }}>
+              <DeckLayout
+                deckA={{
+                  track: deckATrack,
+                  isPlaying: isDeckAPlaying,
+                  isScratchActive: scratchActiveA,
+                  volume: deckAVolume,
+                  autoScratchTrigger: autoScratchA,
+                  onScratchStart: handleDeckAScratchStart,
+                  onScratchEnd: handleDeckAScratchEnd,
+                  onPlayPause: togglePlay,
+                  onTimeUpdate: handleDeckATimeUpdate,
+                }}
+                deckB={{
+                  track: deckBTrack,
+                  isPlaying: isDeckBPlaying,
+                  isScratchActive: scratchActiveB,
+                  volume: deckBVolume,
+                  autoScratchTrigger: autoScratchB,
+                  onScratchStart: handleDeckBScratchStart,
+                  onScratchEnd: handleDeckBScratchEnd,
+                  onPlayPause: togglePlay,
+                  onTimeUpdate: handleDeckBTimeUpdate,
+                }}
+                crossfaderValue={crossfaderValue}
+                onCrossfaderChange={handleCrossfaderChange}
+                onSkipPrev={skipPrev}
+                onSkipNext={skipNext}
+                canSkipPrev={currentIndex > 0}
+                canSkipNext={currentIndex < playlist.length - 1}
+                isCrossfading={isCrossfading}
+                currentIndex={currentIndex}
+                playlistLength={playlist.length}
+                progress={progress}
+                switchPoint={switchPoint}
+                onSwitchPointChange={props.setSwitchPoint}
+                deckAProgress={props.deckAProgress}
+                deckBProgress={props.deckBProgress}
+                crossfadeMs={crossfadeMs}
+                effects={EFFECTS}
+                playingEffects={playingEffects}
+                onTriggerEffect={playEffect}
+              />
 
-              {/* Mini playlist panel — desktop only */}
+              {/* Mini playlist overlay — anchored to right edge, overlaps turntable B */}
               {miniPlaylist && isDesktop && playlist.length > 0 && (
                 <Box
                   sx={{
-                    width: 200,
-                    flexShrink: 0,
-                    bgcolor: alpha("#000", 0.6),
-                    backdropFilter: "blur(8px)",
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    bottom: 8,
+                    width: 190,
+                    zIndex: 20,
+                    bgcolor: alpha("#000", 0.82),
+                    backdropFilter: "blur(12px)",
                     borderRadius: 2,
-                    border: `1px solid ${alpha(red, 0.2)}`,
+                    border: `1px solid ${alpha(red, 0.25)}`,
+                    boxShadow: `0 4px 24px ${alpha("#000", 0.6)}, 0 0 0 1px ${alpha("#000", 0.4)}`,
                     display: "flex",
                     flexDirection: "column",
                     overflow: "hidden",
                   }}
                 >
                   {/* Header */}
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${alpha("#fff", 0.06)}` }}>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${alpha("#fff", 0.06)}`, flexShrink: 0 }}>
                     <Typography sx={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.5, color: alpha(redLight, 0.6), textTransform: "uppercase" }}>
                       Playlist
                     </Typography>
@@ -1309,7 +1312,6 @@ function RadioView(props: RadioViewProps) {
                               {track.artist}
                             </Typography>
                           </Stack>
-                          {/* FULL LED dot */}
                           {track.audioUrl && (
                             <Box sx={{ width: 4, height: 4, borderRadius: "50%", bgcolor: "#ef4444", boxShadow: "0 0 4px rgba(239,68,68,0.7)", flexShrink: 0 }} />
                           )}
@@ -1319,7 +1321,7 @@ function RadioView(props: RadioViewProps) {
                   </Box>
                 </Box>
               )}
-            </Stack>
+            </Box>
           )}
 
           {playlist.length > 0 && !(miniPlaylist && isDesktop) && (
