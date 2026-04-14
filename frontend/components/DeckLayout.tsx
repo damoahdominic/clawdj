@@ -938,57 +938,9 @@ export function DeckLayout({
   // Both decks visible side-by-side with small discs, compact Winamp-style
   // EQ hidden behind a popup, everything fits in ~half the screen.
   if (isMobile) {
-    const mobileDiscSize = 56;
-
-    // Helper: mini deck column (turntable + BPM + track name)
-    const MobileDeckCol = ({ id, dkProps, ctrl, engRef, accent }: {
-      id: "A" | "B";
-      dkProps: typeof deckA;
-      ctrl: DeckCtrl;
-      engRef: React.MutableRefObject<AudioEngineApi | null>;
-      accent: AccentTone;
-    }) => {
-      const effectiveRate = ctrl.tempo * (1 + ctrl.pitch * 0.03);
-      return (
-        <Stack alignItems="center" spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-          {/* Deck label + BPM */}
-          <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ width: "100%" }} justifyContent="center">
-            <Typography sx={{ fontSize: 8, fontWeight: 800, letterSpacing: 2, color: alpha(redLight, 0.5) }}>{id}</Typography>
-            <Typography sx={{ fontFamily: "monospace", color: redLight, fontWeight: 800, fontSize: 13, lineHeight: 1 }}>
-              {dkProps.track?.bpm ? (dkProps.track.bpm * effectiveRate).toFixed(0) : "---"}
-            </Typography>
-          </Stack>
-
-          {/* Small turntable */}
-          <Turntable
-            deckId={id}
-            size={mobileDiscSize}
-            isPlaying={dkProps.isPlaying}
-            coverUrl={dkProps.track?.cover}
-            bpm={dkProps.track?.bpm ?? 120}
-            duration={dkProps.track?.duration}
-            accentColor={accent}
-            audioUrl={dkProps.track?.audioUrl || dkProps.track?.preview}
-            volume={dkProps.volume}
-            autoScratchTrigger={dkProps.autoScratchTrigger}
-            onScratchStart={dkProps.onScratchStart}
-            onScratchEnd={dkProps.onScratchEnd}
-            onTimeUpdate={dkProps.onTimeUpdate}
-            engineRef={engRef}
-          />
-
-          {/* Track meta — 1 line each, ellipsis */}
-          <Stack alignItems="center" sx={{ width: "100%", minWidth: 0 }}>
-            <Typography sx={{ fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%", textAlign: "center" }}>
-              {dkProps.track?.title ?? "—"}
-            </Typography>
-            <Typography sx={{ fontSize: 8, color: "text.secondary", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%", textAlign: "center" }}>
-              {dkProps.track?.artist ?? ""}
-            </Typography>
-          </Stack>
-        </Stack>
-      );
-    };
+    const mobileDiscSize = 52;
+    const rateA = ctrlA.tempo * (1 + ctrlA.pitch * 0.03);
+    const rateB = ctrlB.tempo * (1 + ctrlB.pitch * 0.03);
 
     // Which deck is selected for the control strip
     const activeCtrl = mobileDeck === "A" ? ctrlA : ctrlB;
@@ -1011,17 +963,54 @@ export function DeckLayout({
           },
         }}
       >
-        {/* ─ Row 1: Both decks side by side ─ */}
-        <Stack direction="row" spacing={1} alignItems="flex-start">
-          <MobileDeckCol id="A" dkProps={deckA} ctrl={ctrlA} engRef={engineARef} accent="red" />
-          <MobileDeckCol id="B" dkProps={deckB} ctrl={ctrlB} engRef={engineBRef} accent="redDark" />
-        </Stack>
+        {/* ── Deck row: [Vinyl A] [Waveforms] [Vinyl B] ── */}
+        <Stack direction="row" alignItems="center" spacing={0.75}>
+          {/* Left: Deck A vinyl + meta */}
+          <Stack alignItems="center" spacing={0.25} sx={{ flexShrink: 0, width: mobileDiscSize + 8 }}>
+            <Typography sx={{ fontSize: 7, fontWeight: 800, letterSpacing: 2, color: alpha(redLight, 0.5) }}>
+              A · <Box component="span" sx={{ color: redLight }}>{deckA.track?.bpm ? (deckA.track.bpm * rateA).toFixed(0) : "---"}</Box>
+            </Typography>
+            <Turntable
+              deckId="A" size={mobileDiscSize}
+              isPlaying={deckA.isPlaying} coverUrl={deckA.track?.cover}
+              bpm={deckA.track?.bpm ?? 120} duration={deckA.track?.duration}
+              accentColor="red"
+              audioUrl={deckA.track?.audioUrl || deckA.track?.preview}
+              volume={deckA.volume} autoScratchTrigger={deckA.autoScratchTrigger}
+              onScratchStart={deckA.onScratchStart} onScratchEnd={deckA.onScratchEnd}
+              onTimeUpdate={deckA.onTimeUpdate} engineRef={engineARef}
+            />
+            <Typography sx={{ fontSize: 8, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%", textAlign: "center" }}>
+              {deckA.track?.title ?? "—"}
+            </Typography>
+          </Stack>
 
-        {/* ─ Waveforms ─ */}
-        <Stack spacing={0.25} sx={{ mt: 1 }}>
-          {waveformA}
-          <Box sx={{ borderBottom: `1px solid ${alpha(red, 0.15)}` }} />
-          {waveformB}
+          {/* Center: stacked waveforms */}
+          <Stack spacing={0.25} sx={{ flex: 1, minWidth: 0 }}>
+            {waveformA}
+            <Box sx={{ borderBottom: `1px solid ${alpha(red, 0.15)}` }} />
+            {waveformB}
+          </Stack>
+
+          {/* Right: Deck B vinyl + meta */}
+          <Stack alignItems="center" spacing={0.25} sx={{ flexShrink: 0, width: mobileDiscSize + 8 }}>
+            <Typography sx={{ fontSize: 7, fontWeight: 800, letterSpacing: 2, color: alpha(redLight, 0.5) }}>
+              B · <Box component="span" sx={{ color: redLight }}>{deckB.track?.bpm ? (deckB.track.bpm * rateB).toFixed(0) : "---"}</Box>
+            </Typography>
+            <Turntable
+              deckId="B" size={mobileDiscSize}
+              isPlaying={deckB.isPlaying} coverUrl={deckB.track?.cover}
+              bpm={deckB.track?.bpm ?? 120} duration={deckB.track?.duration}
+              accentColor="redDark"
+              audioUrl={deckB.track?.audioUrl || deckB.track?.preview}
+              volume={deckB.volume} autoScratchTrigger={deckB.autoScratchTrigger}
+              onScratchStart={deckB.onScratchStart} onScratchEnd={deckB.onScratchEnd}
+              onTimeUpdate={deckB.onTimeUpdate} engineRef={engineBRef}
+            />
+            <Typography sx={{ fontSize: 8, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%", textAlign: "center" }}>
+              {deckB.track?.title ?? "—"}
+            </Typography>
+          </Stack>
         </Stack>
 
         {progressBar}
