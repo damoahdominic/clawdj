@@ -170,15 +170,11 @@ export function WaveformLane({
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [width, setWidth] = useState(600);
 
-  // Target (prop) + displayed (smoothed) progress. Displayed progress is
-  // eased toward the target via RAF so jumpy 100 ms updates from the parent
-  // read as a smooth scroll.
-  const targetProgressRef = useRef(progress);
+  // Displayed progress tracks the prop directly. We quantize to a fixed
+  // step size (in seconds) so sub-pixel jitter from the audio element's
+  // currentTime is invisible. No easing — just clean, direct tracking.
   const shownProgressRef = useRef(progress);
-  // Track whether progress is actually advancing (playing) vs jittering (paused).
-  const lastStableTargetRef = useRef(progress);
-  const stableCountRef = useRef(0);
-  const frozenRef = useRef(false);
+  const lastCommittedRef = useRef(progress);
 
   // Drag-to-scratch local state. When dragging, overrideProgressRef takes
   // precedence in the RAF loop so the waveform scrolls with the pointer.
@@ -188,32 +184,29 @@ export function WaveformLane({
   const dragLastTsRef = useRef(0);
   const dragSecRef = useRef(0);
   const dragLastDirRef = useRef<1 | -1>(1);
-  useEffect(() => {
-    const delta = Math.abs(progress - lastStableTargetRef.current);
-    if (delta < 0.002) {
-      // Progress barely moved — likely paused or jittering
-      stableCountRef.current++;
-      if (stableCountRef.current > 3) {
-        frozenRef.current = true;
-      }
-    } else {
-      // Real movement — unfreeze and track
-      stableCountRef.current = 0;
-      frozenRef.current = false;
-      lastStableTargetRef.current = progress;
-    }
-    if (!frozenRef.current) {
-      targetProgressRef.current = progress;
-    }
-  }, [progress]);
 
-  // Snap immediately on track change — no easing a 0→start jump.
+  useEffect(() => {
+    const dur = durationSec > 0 ? durationSec : 30;
+    // Quantize to ~0.05 second steps — eliminates jitter without visible lag
+    const stepSize = 0.05 / dur;
+    const delta = Math.abs(progress - lastCommittedRef.current);
+
+    if (delta > 0.03) {
+      // Large jump (crossfade, track change, seek) — snap immediately
+      shownProgressRef.current = progress;
+      lastCommittedRef.current = progress;
+    } else if (delta >= stepSize) {
+      // Normal playback movement — commit the new position
+      shownProgressRef.current = progress;
+      lastCommittedRef.current = progress;
+    }
+    // else: sub-step jitter — ignore, keep showing lastCommitted
+  }, [progress, durationSec]);
+
+  // Snap immediately on track change
   useEffect(() => {
     shownProgressRef.current = progress;
-    targetProgressRef.current = progress;
-    lastStableTargetRef.current = progress;
-    frozenRef.current = false;
-    stableCountRef.current = 0;
+    lastCommittedRef.current = progress;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl]);
 
@@ -278,42 +271,19 @@ export function WaveformLane({
     };
   }, [peaks, width, height, windowSeconds, durationSec, loopRegion, red, wavePlayed, waveMain]);
 
-  // Single RAF loop: eases displayed progress toward the target and redraws
-  // every frame. Starts once and runs for the component's lifetime.
+  // Single RAF loop: redraws at the committed progress position every frame.
+  // No easing — the quantized progress effect handles all smoothing.
   useEffect(() => {
     let raf = 0;
-    let lastTs = 0;
-    const tick = (ts: number) => {
+    const tick = () => {
       raf = requestAnimationFrame(tick);
-      const dt = lastTs ? Math.min(64, ts - lastTs) : 16;
-      lastTs = ts;
 
       // When the user is scratching the waveform, their drag is authoritative.
-      if (overrideProgressRef.current !== null) {
-        shownProgressRef.current = overrideProgressRef.current;
-        drawFrame(canvasRef.current, shownProgressRef.current, drawParamsRef.current);
-        return;
-      }
+      const p = overrideProgressRef.current !== null
+        ? overrideProgressRef.current
+        : shownProgressRef.current;
 
-      // Ease toward the target, but snap immediately on large jumps
-      // (crossfade transitions, track restarts, seeks).
-      // When paused or nearly still, hold position — don't chase micro-jitter.
-      const gap = Math.abs(targetProgressRef.current - shownProgressRef.current);
-      let next: number;
-      if (gap < 0.0003) {
-        // Effectively still (paused or sub-pixel jitter) — hold position
-        next = shownProgressRef.current;
-      } else if (gap > 0.03) {
-        // Large jump — snap immediately to avoid violent oscillation
-        next = targetProgressRef.current;
-      } else {
-        const tau = 0.08;
-        const a = 1 - Math.exp(-(dt / 1000) / tau);
-        next = shownProgressRef.current + (targetProgressRef.current - shownProgressRef.current) * a;
-      }
-      shownProgressRef.current = next;
-
-      drawFrame(canvasRef.current, next, drawParamsRef.current);
+      drawFrame(canvasRef.current, p, drawParamsRef.current);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
