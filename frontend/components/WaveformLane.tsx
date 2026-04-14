@@ -275,9 +275,13 @@ export function WaveformLane({
 
       // Ease toward the target, but snap immediately on large jumps
       // (crossfade transitions, track restarts, seeks).
+      // When paused or nearly still, hold position — don't chase micro-jitter.
       const gap = Math.abs(targetProgressRef.current - shownProgressRef.current);
       let next: number;
-      if (gap > 0.03) {
+      if (gap < 0.0003) {
+        // Effectively still (paused or sub-pixel jitter) — hold position
+        next = shownProgressRef.current;
+      } else if (gap > 0.03) {
         // Large jump — snap immediately to avoid violent oscillation
         next = targetProgressRef.current;
       } else {
