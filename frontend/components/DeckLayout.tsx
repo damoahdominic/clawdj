@@ -765,31 +765,61 @@ export function DeckLayout({
         <SkipPreviousIcon sx={{ fontSize: skipIconSize }} />
       </IconButton>
 
-      <Stack alignItems="center" spacing={0.25} sx={{ minWidth: 70 }}>
+      {/* Digital display */}
+      <Box
+        sx={{
+          minWidth: 80,
+          my: "10px",
+          px: 1.5,
+          py: 0.75,
+          borderRadius: "4px",
+          bgcolor: alpha("#000", 0.85),
+          border: `1px solid ${alpha("#333", 0.5)}`,
+          boxShadow: `inset 0 2px 6px ${alpha("#000", 0.7)}, inset 0 0 0 1px ${alpha("#000", 0.5)}`,
+          textAlign: "center",
+        }}
+      >
         <Typography
-          variant="caption"
-          sx={{ color: "text.disabled", fontFamily: "monospace", fontSize: 11 }}
+          sx={{
+            fontFamily: "monospace",
+            fontSize: 16,
+            fontWeight: 800,
+            color: redLight,
+            lineHeight: 1.2,
+            letterSpacing: 1,
+            textShadow: `0 0 8px ${alpha(redLight, 0.5)}`,
+          }}
         >
           {currentIndex + 1} / {playlistLength}
         </Typography>
-        {isCrossfading && (
+        {isCrossfading ? (
           <Typography
-            variant="caption"
             sx={{
-              color: redLight, fontSize: 10,
+              fontFamily: "monospace",
+              fontSize: 10,
+              fontWeight: 700,
+              color: redLight,
+              letterSpacing: 0.5,
               animation: "mui-pulse 1.2s ease-in-out infinite",
               "@keyframes mui-pulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.4 } },
             }}
           >
-            crossfading
+            CROSSFADING
           </Typography>
-        )}
-        {!isCrossfading && (
-          <Typography variant="caption" sx={{ color: "text.disabled", fontSize: 10 }}>
+        ) : (
+          <Typography
+            sx={{
+              fontFamily: "monospace",
+              fontSize: 10,
+              fontWeight: 600,
+              color: alpha(redLight, 0.45),
+              letterSpacing: 0.5,
+            }}
+          >
             {(crossfadeMs / 1000).toFixed(1)}s xfade
           </Typography>
         )}
-      </Stack>
+      </Box>
 
       <IconButton
         onClick={onSkipNext}
