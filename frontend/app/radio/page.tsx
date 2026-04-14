@@ -516,8 +516,10 @@ export default function Radio() {
 
   // ── Load playlist ──────────────────────────────────────────────────────────
 
-  const loadPlaylist = useCallback(async () => {
-    if (!vibeQuery.trim()) return;
+  const loadPlaylist = useCallback(async (overrideQuery?: string) => {
+    const q = overrideQuery ?? vibeQuery;
+    if (!q.trim()) return;
+    if (overrideQuery) setVibeQuery(overrideQuery);
     setLoading(true);
     crossfadeTimerRef.current?.();
     crossfadeTimerRef.current = null;
@@ -532,7 +534,7 @@ export default function Radio() {
     setDeckBVolume(0);
     try {
       const bpmParam = (minBpm > 0 || maxBpm < 200) ? `&min_bpm=${minBpm}&max_bpm=${maxBpm}` : "";
-      const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(vibeQuery)}&count=15${bpmParam}`);
+      const res = await fetch(`${API_URL}/api/vibe-playlist?q=${encodeURIComponent(q)}&count=15${bpmParam}`);
       const data = await res.json();
       setDetected(data.detected ?? null);
       if (data.tracks?.length > 0) {
@@ -849,7 +851,7 @@ export default function Radio() {
 interface RadioViewProps {
   vibeQuery: string; setVibeQuery: (v: string) => void;
   detected: { type: string; label?: string | null; bpm_min?: number | null; bpm_max?: number | null } | null;
-  loading: boolean; loadPlaylist: () => void;
+  loading: boolean; loadPlaylist: (overrideQuery?: string) => void;
   playlist: PlaylistTrack[]; currentIndex: number; isPlaying: boolean;
   progress: number; switchPoint: number; setSwitchPoint: (v: number) => void;
   deckAProgress: number; deckBProgress: number;
@@ -1139,7 +1141,7 @@ function RadioView(props: RadioViewProps) {
           <Typography sx={{ color: "text.secondary", mb: 4, fontSize: { xs: 13, sm: 15 }, textAlign: "center" }}>
             Two decks, a crossfader, and scratch-enabled turntables
           </Typography>
-          <Stack direction="row" spacing={1} sx={{ width: "100%", maxWidth: 480 }}>
+          <Box sx={{ width: "100%", maxWidth: 500, position: "relative" }}>
             <TextField
               fullWidth
               value={vibeQuery}
@@ -1147,49 +1149,57 @@ function RadioView(props: RadioViewProps) {
               onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
               placeholder="Artist, song, or vibe..."
               variant="outlined"
+              InputProps={{
+                endAdornment: (
+                  <IconButton
+                    onClick={() => loadPlaylist()}
+                    disabled={loading || !vibeQuery.trim()}
+                    size="small"
+                    sx={{
+                      width: 36, height: 36,
+                      borderRadius: 2,
+                      background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                      color: "#fff",
+                      mr: -0.5,
+                      "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
+                      "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
+                    }}
+                  >
+                    {loading ? <CircularProgress size={18} thickness={5} sx={{ color: "#fff" }} /> : <SearchIcon sx={{ fontSize: 20 }} />}
+                  </IconButton>
+                ),
+              }}
               sx={{
                 "& .MuiOutlinedInput-root": {
                   bgcolor: alpha("#000", 0.55),
                   backdropFilter: "blur(6px)",
                   borderRadius: 3,
+                  pr: 1,
                   "& fieldset": { borderColor: alpha(red, 0.3) },
                   "&:hover fieldset": { borderColor: alpha(red, 0.5) },
                   "&.Mui-focused fieldset": { borderColor: red },
                 },
               }}
             />
-            <IconButton
-              onClick={loadPlaylist}
-              disabled={loading || !vibeQuery.trim()}
-              sx={{
-                width: 48, height: 48, flexShrink: 0,
-                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                boxShadow: `0 6px 18px ${alpha(red, 0.45)}`,
-                color: "#fff",
-                "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
-                "&.Mui-disabled": { opacity: 0.35, color: "#fff" },
-              }}
-            >
-              <SearchIcon />
-            </IconButton>
-          </Stack>
-          <Stack direction="row" spacing={2} sx={{ mt: 3, opacity: 0.5 }}>
-            {["chill house", "90s hip hop", "Kendrick Lamar", "jazz vibes"].map((s) => (
+          </Box>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center", mt: 3, opacity: 0.6 }}>
+            {["chill house", "90s hip hop", "Kendrick Lamar", "jazz vibes", "Afrobeats", "lo-fi", "trap bangers", "R&B slow jams", "reggaeton", "classic rock"].map((s) => (
               <Chip
                 key={s}
                 label={s}
                 size="small"
-                onClick={() => { setVibeQuery(s); }}
+                onClick={() => loadPlaylist(s)}
                 sx={{
                   fontSize: 11, fontWeight: 600,
                   bgcolor: alpha(red, 0.1),
                   border: `1px solid ${alpha(red, 0.2)}`,
                   color: "text.secondary",
-                  "&:hover": { bgcolor: alpha(red, 0.2), color: "#fff" },
+                  cursor: "pointer",
+                  "&:hover": { bgcolor: alpha(red, 0.25), color: "#fff", borderColor: alpha(red, 0.5) },
                 }}
               />
             ))}
-          </Stack>
+          </Box>
           <Stack direction="row" spacing={2} sx={{ mt: 6, opacity: 0.3 }}>
             <MuiLink href="/" underline="none" sx={{ color: "text.disabled", fontSize: 12, "&:hover": { color: "primary.light" } }}>
               <ArrowBackIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: "middle" }} />Home
@@ -1249,45 +1259,45 @@ function RadioView(props: RadioViewProps) {
           </Stack>
 
           <Stack spacing={1}>
-            <Stack direction="row" spacing={1}>
-              <TextField
-                fullWidth
-                value={vibeQuery}
-                onChange={(e) => setVibeQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
-                placeholder="Artist, song, or vibe..."
-                variant="outlined"
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: alpha("#000", 0.55),
-                    backdropFilter: "blur(6px)",
-                    "& fieldset": { borderColor: alpha(red, 0.3) },
-                    "&:hover fieldset": { borderColor: alpha(red, 0.5) },
-                    "&.Mui-focused fieldset": { borderColor: red },
-                  },
-                }}
-              />
-              <IconButton
-                onClick={loadPlaylist}
-                disabled={loading || !vibeQuery.trim()}
-                sx={{
-                  width: 44, height: 44, flexShrink: 0,
-                  background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                  boxShadow: `0 6px 18px ${alpha(red, 0.45)}`,
-                  color: "#fff",
-                  "&:hover": {
-                    background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})`,
-                  },
-                  "&.Mui-disabled": { opacity: 0.35, color: "#fff" },
-                }}
-              >
-                {loading ? (
-                  <CircularProgress size={22} thickness={5} sx={{ color: "#fff" }} />
-                ) : (
-                  <SearchIcon />
-                )}
-              </IconButton>
-            </Stack>
+            <TextField
+              fullWidth
+              value={vibeQuery}
+              onChange={(e) => setVibeQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
+              placeholder="Artist, song, or vibe..."
+              variant="outlined"
+              InputProps={{
+                endAdornment: (
+                  <IconButton
+                    onClick={() => loadPlaylist()}
+                    disabled={loading || !vibeQuery.trim()}
+                    size="small"
+                    sx={{
+                      width: 34, height: 34,
+                      borderRadius: 2,
+                      background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                      color: "#fff",
+                      mr: -0.5,
+                      "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
+                      "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
+                    }}
+                  >
+                    {loading ? <CircularProgress size={18} thickness={5} sx={{ color: "#fff" }} /> : <SearchIcon sx={{ fontSize: 18 }} />}
+                  </IconButton>
+                ),
+              }}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  bgcolor: alpha("#000", 0.55),
+                  backdropFilter: "blur(6px)",
+                  borderRadius: 3,
+                  pr: 1,
+                  "& fieldset": { borderColor: alpha(red, 0.3) },
+                  "&:hover fieldset": { borderColor: alpha(red, 0.5) },
+                  "&.Mui-focused fieldset": { borderColor: red },
+                },
+              }}
+            />
             {detected && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ pl: 0.5 }}>
                 <Box
