@@ -813,6 +813,64 @@ export default function Radio() {
 
   const skipPrev = () => { if (currentIndex > 0) skipToTrack(currentIndex - 1); };
 
+  // Media keys (Next/Prev/Play-Pause) via the Media Session API + a keydown
+  // fallback for browsers that route them as keyboard events. Refs keep
+  // handlers fresh without re-registering on every render.
+  const skipNextRef = useRef(skipNext);
+  const skipPrevRef = useRef(skipPrev);
+  const togglePlayRef = useRef(togglePlay);
+  useEffect(() => { skipNextRef.current = skipNext; });
+  useEffect(() => { skipPrevRef.current = skipPrev; });
+  useEffect(() => { togglePlayRef.current = togglePlay; });
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    try {
+      ms.setActionHandler("nexttrack", () => skipNextRef.current());
+      ms.setActionHandler("previoustrack", () => skipPrevRef.current());
+      ms.setActionHandler("play", () => togglePlayRef.current());
+      ms.setActionHandler("pause", () => togglePlayRef.current());
+    } catch { /* older browsers */ }
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "MediaTrackNext") { e.preventDefault(); skipNextRef.current(); }
+      else if (e.key === "MediaTrackPrevious") { e.preventDefault(); skipPrevRef.current(); }
+      else if (e.key === "MediaPlayPause") { e.preventDefault(); togglePlayRef.current(); }
+    };
+    window.addEventListener("keydown", onKey);
+
+    return () => {
+      try {
+        ms.setActionHandler("nexttrack", null);
+        ms.setActionHandler("previoustrack", null);
+        ms.setActionHandler("play", null);
+        ms.setActionHandler("pause", null);
+      } catch { /* noop */ }
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  // Keep MediaSession playback state + metadata in sync so the OS-level media
+  // keys actually get routed to this tab.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const track = currentIndex >= 0 ? playlist[currentIndex] : null;
+    if (!track) { navigator.mediaSession.metadata = null; return; }
+    const artwork = track.cover ? [{ src: track.cover, sizes: "512x512", type: "image/jpeg" }] : [];
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: track.title || "Unknown",
+      artist: track.artist || "",
+      album: "",
+      artwork,
+    });
+  }, [currentIndex, playlist]);
+
   const currentTrack = currentIndex >= 0 ? playlist[currentIndex] : null;
   const currentBpm = currentTrack?.bpm || 0;
 
