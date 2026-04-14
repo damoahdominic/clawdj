@@ -43,6 +43,7 @@ const EFFECTS: EffectDef[] = [
   { name: "sharp_siren", label: "Sharp Siren", url: "/effects/sharp_siren.mp3" },
   { name: "gun_cocked", label: "Gun Cocked", url: "/effects/gun_cocked.mp3" },
   { name: "airhorn", label: "Airhorn", url: "/effects/airhorn.mp3" },
+  { name: "prolonged_siren", label: "Prolonged Siren", url: "/effects/prolonged_siren.mp3" },
 ];
 
 interface PlaylistTrack {
