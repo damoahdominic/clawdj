@@ -149,20 +149,56 @@ export function Turntable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl]);
 
-  // ── Play / pause ───────────────────────────────────────────────────────────
+  // ── Play / pause with vinyl spin-down / spin-up ─────────────────────────
+  const spinTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
+
+    const el = engine.audioElRef?.current;
+
     if (isPlaying) {
       if (audioLoadedRef.current) {
         engine.resume().then(() => {
           const t = engine.getCurrentTime() ?? 0;
           engine.play(t);
+          // Spin-up: ramp from slow to normal over ~400ms
+          if (el) {
+            const target = Math.max(0.0625, el.playbackRate);
+            el.playbackRate = 0.0625;
+            let rate = 0.0625;
+            const step = (target - 0.0625) / 12;
+            spinTimerRef.current = setInterval(() => {
+              rate = Math.min(target, rate + step);
+              el.playbackRate = rate;
+              if (rate >= target) {
+                if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
+              }
+            }, 33);
+          }
         });
       }
-      // If not loaded yet, loadTrack().then() handles it
     } else {
-      engine.pause();
+      // Spin-down: ramp playbackRate to minimum over ~600ms, then pause
+      if (el && !el.paused) {
+        let rate = el.playbackRate || 1;
+        const decrement = rate / 18;
+        spinTimerRef.current = setInterval(() => {
+          rate = Math.max(0.0625, rate - decrement);
+          el.playbackRate = rate;
+          if (rate <= 0.0625) {
+            if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
+            engine.pause();
+          }
+        }, 33);
+      } else {
+        engine.pause();
+      }
     }
+
+    return () => {
+      if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying]);
 

@@ -46,6 +46,7 @@ export interface AudioEngineApi {
   getCurrentTime: () => number;
   isPlayingRef: React.MutableRefObject<boolean>;
   durationRef: React.MutableRefObject<number>;
+  audioElRef: React.MutableRefObject<HTMLAudioElement | null>;
 }
 
 export function useAudioEngine(): AudioEngineApi {
@@ -695,5 +696,6 @@ export function useAudioEngine(): AudioEngineApi {
     getCurrentTime,
     isPlayingRef,
     durationRef,
+    audioElRef,
   };
 }
