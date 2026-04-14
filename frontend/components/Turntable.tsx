@@ -154,7 +154,10 @@ export function Turntable({
   useEffect(() => {
     if (isPlaying) {
       if (audioLoadedRef.current) {
-        engine.resume().then(() => engine.play(0));
+        engine.resume().then(() => {
+          const t = engine.getCurrentTime() ?? 0;
+          engine.play(t);
+        });
       }
       // If not loaded yet, loadTrack().then() handles it
     } else {
