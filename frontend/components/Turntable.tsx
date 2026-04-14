@@ -131,6 +131,8 @@ export function Turntable({
     },
   );
 
+  const spinTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // ── Load track ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -144,13 +146,28 @@ export function Turntable({
       if (isPlayingRef.current) {
         await engine.resume();
         await engine.play(0);
+        // Spin-up ramp on fresh track load
+        const el = engine.audioElRef?.current;
+        if (el) {
+          if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
+          const target = Math.max(0.0625, el.playbackRate);
+          el.playbackRate = 0.0625;
+          let rate = 0.0625;
+          const step = (target - 0.0625) / 20;
+          spinTimerRef.current = setInterval(() => {
+            rate = Math.min(target, rate + step);
+            el.playbackRate = rate;
+            if (rate >= target) {
+              if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
+            }
+          }, 33);
+        }
       }
     }).catch(() => { /* handled in engine */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl]);
 
   // ── Play / pause with vinyl spin-down / spin-up ─────────────────────────
-  const spinTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
