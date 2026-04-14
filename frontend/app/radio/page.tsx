@@ -743,11 +743,15 @@ export default function Radio() {
       const seconds = isA ? deckASecondsRef.current : deckBSecondsRef.current;
       const dur = isA ? deckADurationRef.current : deckBDurationRef.current;
 
-      // Per-deck waveform progress (0–1) — independent of active deck
+      // Per-deck waveform progress (0–1) — independent of active deck.
+      // Round seconds to 0.05s to eliminate sub-pixel jitter from paused
+      // audio elements reporting slightly different currentTime each tick.
       const durA = deckADurationRef.current || 1;
       const durB = deckBDurationRef.current || 1;
-      setDeckAProgress(Math.max(0, Math.min(1, deckASecondsRef.current / durA)));
-      setDeckBProgress(Math.max(0, Math.min(1, deckBSecondsRef.current / durB)));
+      const secA = Math.round(deckASecondsRef.current * 20) / 20;
+      const secB = Math.round(deckBSecondsRef.current * 20) / 20;
+      setDeckAProgress(Math.max(0, Math.min(1, secA / durA)));
+      setDeckBProgress(Math.max(0, Math.min(1, secB / durB)));
 
       if (!dur) return;
       const pct = seconds / dur;

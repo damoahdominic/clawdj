@@ -170,11 +170,9 @@ export function WaveformLane({
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [width, setWidth] = useState(600);
 
-  // Displayed progress tracks the prop directly. We quantize to a fixed
-  // step size (in seconds) so sub-pixel jitter from the audio element's
-  // currentTime is invisible. No easing — just clean, direct tracking.
+  // Progress is pre-quantized by the parent (rounded to 0.05s steps),
+  // so we just track it directly — no easing, no jitter filtering needed.
   const shownProgressRef = useRef(progress);
-  const lastCommittedRef = useRef(progress);
 
   // Drag-to-scratch local state. When dragging, overrideProgressRef takes
   // precedence in the RAF loop so the waveform scrolls with the pointer.
@@ -186,29 +184,8 @@ export function WaveformLane({
   const dragLastDirRef = useRef<1 | -1>(1);
 
   useEffect(() => {
-    const dur = durationSec > 0 ? durationSec : 30;
-    // Quantize to ~0.05 second steps — eliminates jitter without visible lag
-    const stepSize = 0.05 / dur;
-    const delta = Math.abs(progress - lastCommittedRef.current);
-
-    if (delta > 0.03) {
-      // Large jump (crossfade, track change, seek) — snap immediately
-      shownProgressRef.current = progress;
-      lastCommittedRef.current = progress;
-    } else if (delta >= stepSize) {
-      // Normal playback movement — commit the new position
-      shownProgressRef.current = progress;
-      lastCommittedRef.current = progress;
-    }
-    // else: sub-step jitter — ignore, keep showing lastCommitted
-  }, [progress, durationSec]);
-
-  // Snap immediately on track change
-  useEffect(() => {
     shownProgressRef.current = progress;
-    lastCommittedRef.current = progress;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioUrl]);
+  }, [progress]);
 
   // Resize observer for the container.
   useEffect(() => {
