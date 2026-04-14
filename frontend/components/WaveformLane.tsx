@@ -31,31 +31,67 @@ interface WaveformLaneProps {
 const peakCache = new Map<string, number[]>();
 
 interface DrawParams {
-  peaks: number[] | null;
+  offscreenPlayed: HTMLCanvasElement | null;
+  offscreenMain: HTMLCanvasElement | null;
+  offscreenLogicalWidth: number;
   width: number;
   height: number;
   windowSeconds: number;
   durationSec: number;
   loopRegion: { inSec: number; outSec: number } | null;
-  wavePlayed: string;
-  waveMain: string;
   red: string;
+}
+
+/**
+ * Build a single offscreen canvas with the full waveform rendered once at a
+ * high pixel-per-second rate so that scrolling it each frame via drawImage
+ * scales linearly with sub-pixel precision.
+ */
+function buildOffscreen(
+  peaks: number[],
+  color: string,
+  logicalWidth: number,
+  height: number,
+): HTMLCanvasElement {
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.floor(logicalWidth * dpr));
+  canvas.height = Math.max(1, Math.floor(height * dpr));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.25;
+  ctx.lineCap = "round";
+  const mid = height / 2;
+  const amp = height * 0.48;
+  const n = peaks.length;
+  const stride = logicalWidth / n;
+  // Draw one thin bar per peak bucket, centered on its slot.
+  for (let i = 0; i < n; i++) {
+    const x = i * stride + stride / 2;
+    const h = Math.max(0.5, peaks[i] * amp);
+    ctx.beginPath();
+    ctx.moveTo(x, mid - h);
+    ctx.lineTo(x, mid + h);
+    ctx.stroke();
+  }
+  return canvas;
 }
 
 function drawFrame(canvas: HTMLCanvasElement | null, progress: number, params: DrawParams) {
   if (!canvas) return;
-  const { peaks, width, height, windowSeconds, durationSec, loopRegion, wavePlayed, waveMain, red } = params;
+  const { offscreenPlayed, offscreenMain, offscreenLogicalWidth, width, height, windowSeconds, durationSec, loopRegion, red } = params;
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, width, height);
 
-  if (!peaks || peaks.length === 0) {
+  if (!offscreenPlayed || !offscreenMain) {
     ctx.fillStyle = "#181818";
     ctx.fillRect(0, height / 2 - 1, width, 2);
     return;
@@ -66,23 +102,47 @@ function drawFrame(canvas: HTMLCanvasElement | null, progress: number, params: D
   const playSec = progress * dur;
   const viewStartSec = playSec - windowSeconds / 2;
 
-  const bucketSec = dur / peaks.length;
-  const mid = height / 2;
-  const amp = height * 0.48;
+  // Map seconds → offscreen logical pixels.
+  const srcPxPerSec = offscreenLogicalWidth / dur;
+  const srcViewX = viewStartSec * srcPxPerSec;
+  const srcViewW = windowSeconds * srcPxPerSec;
+  const srcPlayheadX = playSec * srcPxPerSec;
+  // Backing-store coords for the offscreen (DPR-aware).
+  const srcScale = offscreenPlayed.width / offscreenLogicalWidth;
 
-  ctx.lineWidth = 2;
-  for (let x = 0; x < width; x += 2) {
-    const t = viewStartSec + x / pxPerSec;
-    if (t < 0 || t >= dur) continue;
-    const bIdx = Math.floor(t / bucketSec);
-    const p = peaks[bIdx] ?? 0;
-    const h = Math.max(1, p * amp);
-    ctx.strokeStyle = t <= playSec ? wavePlayed : waveMain;
-    ctx.beginPath();
-    ctx.moveTo(x + 0.5, mid - h);
-    ctx.lineTo(x + 0.5, mid + h);
-    ctx.stroke();
-  }
+  const playheadDstX = width / 2;
+
+  // Helper: draw a logical-x range from an offscreen into [dstX0..dstX1].
+  const drawSlice = (
+    src: HTMLCanvasElement,
+    srcLogicalX0: number,
+    srcLogicalX1: number,
+    dstX0: number,
+    dstX1: number,
+  ) => {
+    const logW = srcLogicalX1 - srcLogicalX0;
+    const dstW = dstX1 - dstX0;
+    if (logW <= 0 || dstW <= 0) return;
+    // Clip against offscreen bounds.
+    let s0 = srcLogicalX0;
+    let s1 = srcLogicalX1;
+    let d0 = dstX0;
+    let d1 = dstX1;
+    const scaleLD = dstW / logW;
+    if (s0 < 0) { d0 = dstX0 + (-s0) * scaleLD; s0 = 0; }
+    if (s1 > offscreenLogicalWidth) { d1 = dstX1 - (s1 - offscreenLogicalWidth) * scaleLD; s1 = offscreenLogicalWidth; }
+    if (s1 <= s0 || d1 <= d0) return;
+    ctx.drawImage(
+      src,
+      s0 * srcScale, 0, (s1 - s0) * srcScale, src.height,
+      d0, 0, d1 - d0, height,
+    );
+  };
+
+  // Played half (left of centre): srcViewX → srcPlayheadX mapped to 0 → playheadDstX.
+  drawSlice(offscreenPlayed, srcViewX, srcPlayheadX, 0, playheadDstX);
+  // Unplayed half (right of centre).
+  drawSlice(offscreenMain, srcPlayheadX, srcViewX + srcViewW, playheadDstX, width);
 
   if (loopRegion && dur > 0) {
     const loopX1 = (loopRegion.inSec - viewStartSec) * pxPerSec;
@@ -101,6 +161,7 @@ function drawFrame(canvas: HTMLCanvasElement | null, progress: number, params: D
     }
   }
 
+  // Static grid overlay.
   ctx.strokeStyle = "rgba(255,255,255,0.05)";
   ctx.lineWidth = 1;
   for (let x = (width / 2) % 40; x < width; x += 40) {
@@ -257,29 +318,51 @@ export function WaveformLane({
     canvas.style.height = `${height}px`;
   }, [width, height]);
 
+  // Offscreen canvases: the full waveform pre-rendered once per track + color
+  // scheme. Each frame just slices a window out via drawImage — that's what
+  // gives us pixel-smooth sub-pixel scrolling instead of bucket-snapped bars.
+  const offscreenPlayedRef = useRef<HTMLCanvasElement | null>(null);
+  const offscreenMainRef = useRef<HTMLCanvasElement | null>(null);
+  const offscreenLogicalWidthRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!peaks || peaks.length === 0) {
+      offscreenPlayedRef.current = null;
+      offscreenMainRef.current = null;
+      offscreenLogicalWidthRef.current = 0;
+      return;
+    }
+    // Render at 3 logical px per bucket — plenty of resolution for smooth
+    // scaling down to whatever the visible canvas size ends up being.
+    const logicalWidth = peaks.length * 3;
+    offscreenPlayedRef.current = buildOffscreen(peaks, wavePlayed, logicalWidth, height);
+    offscreenMainRef.current = buildOffscreen(peaks, waveMain, logicalWidth, height);
+    offscreenLogicalWidthRef.current = logicalWidth;
+  }, [peaks, height, wavePlayed, waveMain]);
+
   // Keep latest draw params in a ref so the RAF loop can read them without
   // re-subscribing on every prop change.
   const drawParamsRef = useRef({
-    peaks: null as number[] | null,
+    offscreenPlayed: null as HTMLCanvasElement | null,
+    offscreenMain: null as HTMLCanvasElement | null,
+    offscreenLogicalWidth: 0,
     width,
     height,
     windowSeconds,
     durationSec,
     loopRegion,
-    wavePlayed,
-    waveMain,
     red,
   });
   useEffect(() => {
     drawParamsRef.current = {
-      peaks,
+      offscreenPlayed: offscreenPlayedRef.current,
+      offscreenMain: offscreenMainRef.current,
+      offscreenLogicalWidth: offscreenLogicalWidthRef.current,
       width,
       height,
       windowSeconds,
       durationSec,
       loopRegion,
-      wavePlayed,
-      waveMain,
       red,
     };
   }, [peaks, width, height, windowSeconds, durationSec, loopRegion, red, wavePlayed, waveMain]);

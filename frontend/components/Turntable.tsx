@@ -176,23 +176,35 @@ export function Turntable({
 
     if (isPlaying) {
       if (audioLoadedRef.current) {
-        engine.resume().then(async () => {
+        engine.resume().then(() => {
           const t = engine.getCurrentTime() ?? 0;
-          await engine.play(t);
-          // play() sets playbackRate to baseRate — capture it, then override
+          // Snapshot the intended target rate BEFORE engine.play overwrites it,
+          // then kick off engine.play without awaiting. engine.play sets
+          // playbackRate = baseRate synchronously at the top of its body, so
+          // we synchronously override right after — this lands before the
+          // audio element's play() promise resolves, preventing a brief
+          // full-speed burst.
+          const target = el ? Math.max(0.0625, el.playbackRate || 1) : 1;
+          const playPromise = engine.play(t);
           if (el) {
-            const target = Math.max(0.0625, el.playbackRate);
             el.playbackRate = 0.0625;
-            let rate = 0.0625;
-            const step = (target - 0.0625) / 20; // ~20 steps at 33ms = ~660ms
-            spinTimerRef.current = setInterval(() => {
-              rate = Math.min(target, rate + step);
+            const startRate = 0.0625;
+            const durMs = 900;
+            const startTs = performance.now();
+            const tick = () => {
+              const elapsed = performance.now() - startTs;
+              const u = Math.min(1, elapsed / durMs);
+              // easeOutCubic — starts slow, accelerates, settles at target
+              const eased = 1 - Math.pow(1 - u, 3);
+              const rate = startRate + (target - startRate) * eased;
               el.playbackRate = rate;
-              if (rate >= target) {
+              if (u >= 1) {
                 if (spinTimerRef.current) { clearInterval(spinTimerRef.current); spinTimerRef.current = null; }
               }
-            }, 33);
+            };
+            spinTimerRef.current = setInterval(tick, 16);
           }
+          playPromise.catch(() => { /* noop */ });
         });
       }
     } else {
