@@ -20,6 +20,11 @@ interface WaveformLaneProps {
   loopRegion?: { inSec: number; outSec: number } | null;
   /** Whether the deck is currently playing — drives time extrapolation. */
   isPlaying?: boolean;
+  /** Optional direct accessor for the live audio currentTime. When provided,
+   *  the RAF loop reads this every frame instead of relying on the polled
+   *  `progress` prop — giving perfectly smooth motion regardless of React
+   *  update cadence. Returns null if no audio is loaded. */
+  getCurrentSeconds?: () => number | null;
   /** Drag-to-scratch on this lane. */
   onScratchStart?: (seconds: number) => void;
   onScratchMove?: (speed: number, isReversed: boolean, seconds: number) => void;
@@ -78,10 +83,13 @@ export function WaveformLane({
   durationSec = 0,
   loopRegion = null,
   isPlaying = false,
+  getCurrentSeconds,
   onScratchStart,
   onScratchMove,
   onScratchEnd,
 }: WaveformLaneProps) {
+  const getCurrentSecondsRef = useRef(getCurrentSeconds);
+  useEffect(() => { getCurrentSecondsRef.current = getCurrentSeconds; }, [getCurrentSeconds]);
   const scratchable = !!(onScratchStart && onScratchMove && onScratchEnd);
   const theme = useTheme();
   const red = theme.palette.primary.main;
@@ -215,22 +223,28 @@ export function WaveformLane({
       const playedEl = playedCanvasRef.current;
       const mainEl = mainCanvasRef.current;
       if (!playedEl || !mainEl) return;
+      const dur = durationSecRef.current;
+      if (dur <= 0) return;
 
-      let p: number;
+      let playSec: number;
       if (overrideProgressRef.current !== null) {
-        p = overrideProgressRef.current;
-      } else if (isPlayingRef.current && durationSecRef.current > 0) {
-        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-        const elapsed = (now - baseProgressTimeRef.current) / 1000;
-        p = baseProgressRef.current + elapsed / durationSecRef.current;
-        if (p < 0) p = 0;
-        else if (p > 1) p = 1;
+        playSec = overrideProgressRef.current * dur;
       } else {
-        p = baseProgressRef.current;
+        // Prefer live audio time — it updates every frame in modern browsers
+        // so there's no polling gap to smooth over. Fall back to extrapolated
+        // progress if the accessor isn't wired up yet.
+        const live = getCurrentSecondsRef.current?.();
+        if (live != null && Number.isFinite(live) && live > 0) {
+          playSec = live;
+        } else if (isPlayingRef.current) {
+          const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+          const elapsed = (now - baseProgressTimeRef.current) / 1000;
+          playSec = (baseProgressRef.current + elapsed / dur) * dur;
+        } else {
+          playSec = baseProgressRef.current * dur;
+        }
       }
 
-      const dur = durationSecRef.current;
-      const playSec = p * dur;
       // Translate so that x=playSec*pxPerSec in the canvas lands at container
       // centre. Using translate3d to force a GPU compositor layer.
       const tx = width / 2 - playSec * pxPerSec;
