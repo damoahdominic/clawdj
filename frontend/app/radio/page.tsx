@@ -1089,8 +1089,8 @@ function RadioView(props: RadioViewProps) {
         </Stack>
       </Drawer>
 
-      <Container maxWidth="md" sx={{ position: "relative", zIndex: 10, py: 4 }}>
-        <Stack spacing={3}>
+      <Container maxWidth="md" sx={{ position: "relative", zIndex: 10, py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 } }}>
+        <Stack spacing={{ xs: 2, sm: 3 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             <MuiLink
               href="/"
@@ -1100,16 +1100,16 @@ function RadioView(props: RadioViewProps) {
                 alignItems: "center",
                 gap: 0.5,
                 color: "text.secondary",
-                fontSize: 14,
+                fontSize: { xs: 12, sm: 14 },
                 "&:hover": { color: "primary.light" },
               }}
             >
-              <ArrowBackIcon fontSize="small" /> Home
+              <ArrowBackIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /> Home
             </MuiLink>
             <Typography
-              variant="h4"
               sx={{
                 fontWeight: 800,
+                fontSize: { xs: 20, sm: 34 },
                 background: `linear-gradient(90deg, ${theme.palette.primary.dark}, ${red}, ${redLight})`,
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
@@ -1120,9 +1120,10 @@ function RadioView(props: RadioViewProps) {
             <IconButton
               onClick={() => setShowSettings(!showSettings)}
               title="Settings"
+              size="small"
               sx={{ color: "text.secondary", "&:hover": { color: "primary.light" } }}
             >
-              <SettingsIcon />
+              <SettingsIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
             </IconButton>
           </Stack>
 
@@ -1150,7 +1151,8 @@ function RadioView(props: RadioViewProps) {
                 disabled={loading || !vibeQuery.trim()}
                 variant="contained"
                 sx={{
-                  px: 4,
+                  px: { xs: 2.5, sm: 4 },
+                  minWidth: { xs: 48, sm: "auto" },
                   background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                   boxShadow: `0 6px 18px ${alpha(red, 0.45)}`,
                   "&:hover": {
@@ -1280,8 +1282,8 @@ function RadioView(props: RadioViewProps) {
                       sx={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 1.5,
-                        p: 1.75,
+                        gap: { xs: 1, sm: 1.5 },
+                        p: { xs: 1, sm: 1.75 },
                         cursor: "pointer",
                         borderBottom: `1px solid ${alpha("#fff", 0.04)}`,
                         opacity: isPast ? 0.4 : 1,
@@ -1297,10 +1299,11 @@ function RadioView(props: RadioViewProps) {
                       <Typography
                         variant="body2"
                         sx={{
-                          width: 24,
+                          width: { xs: 18, sm: 24 },
                           textAlign: "right",
                           color: isCurrent ? "primary.light" : "text.disabled",
                           fontWeight: isCurrent ? 700 : 400,
+                          fontSize: { xs: 11, sm: 14 },
                         }}
                       >
                         {isCurrent && isPlaying ? "~" : i + 1}
@@ -1311,7 +1314,7 @@ function RadioView(props: RadioViewProps) {
                           component="img"
                           src={track.cover}
                           alt=""
-                          sx={{ width: 40, height: 40, borderRadius: 1, boxShadow: 1 }}
+                          sx={{ width: { xs: 32, sm: 40 }, height: { xs: 32, sm: 40 }, borderRadius: 1, boxShadow: 1 }}
                         />
                       )}
                       <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -1319,6 +1322,7 @@ function RadioView(props: RadioViewProps) {
                           variant="body2"
                           sx={{
                             fontWeight: 600,
+                            fontSize: { xs: 12, sm: 14 },
                             color: isCurrent ? "text.primary" : "text.secondary",
                             whiteSpace: "nowrap",
                             overflow: "hidden",
@@ -1335,6 +1339,7 @@ function RadioView(props: RadioViewProps) {
                             whiteSpace: "nowrap",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
+                            fontSize: { xs: 10, sm: 12 },
                           }}
                         >
                           {track.artist}
@@ -1347,7 +1352,7 @@ function RadioView(props: RadioViewProps) {
                           display: "flex",
                           flexDirection: "column",
                           alignItems: "flex-end",
-                          minWidth: 48,
+                          minWidth: { xs: 36, sm: 48 },
                           gap: 0.25,
                         }}
                       >
@@ -1428,8 +1433,8 @@ function RadioView(props: RadioViewProps) {
           )}
 
           {!playlist.length && !loading && (
-            <Box sx={{ textAlign: "center", py: 10 }}>
-              <TuneIcon sx={{ fontSize: 64, color: "primary.dark", mb: 1 }} />
+            <Box sx={{ textAlign: "center", py: { xs: 5, sm: 10 } }}>
+              <TuneIcon sx={{ fontSize: { xs: 48, sm: 64 }, color: "primary.dark", mb: 1 }} />
               <Typography variant="body1" sx={{ color: "text.secondary" }}>
                 Type a vibe and hit Go
               </Typography>

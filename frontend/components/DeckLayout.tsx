@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, IconButton, Paper, Slider, Stack, Tooltip, Typography, Button } from "@mui/material";
+import { Box, IconButton, Paper, Slider, Stack, Tooltip, Typography, Button, useMediaQuery } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
@@ -670,7 +670,10 @@ export function DeckLayout({
   const [trimA, setTrimA] = useState(0.5);
   const [trimB, setTrimB] = useState(0.5);
 
-  const waveformHeight = 68;
+  const isMobile = useMediaQuery("(max-width:767px)");
+  const [mobileDeck, setMobileDeck] = useState<"A" | "B">("A");
+
+  const waveformHeight = isMobile ? 52 : 68;
 
   // Derived track durations for waveform scroll math
   const durA = deckA.track?.duration ?? 30;
@@ -693,6 +696,442 @@ export function DeckLayout({
     ? { inSec: ctrlB.loopIn, outSec: ctrlB.loopOut }
     : null;
 
+  // ── Shared sub-components used by both layouts ──────────────
+  const waveformA = (
+    <WaveformLane
+      audioUrl={deckA.track?.audioUrl || deckA.track?.preview}
+      progress={deckAProgress}
+      accent="bright"
+      height={waveformHeight}
+      durationSec={durA}
+      cuePoints={cuePointsA}
+      loopRegion={loopRegionA}
+      onScratchStart={(s) => { engineARef.current?.beginScratch(s); }}
+      onScratchMove={(sp, rev, s) => { engineARef.current?.updateScratch(sp, rev, s); }}
+      onScratchEnd={(s) => { engineARef.current?.endScratch(s); }}
+    />
+  );
+  const waveformB = (
+    <WaveformLane
+      audioUrl={deckB.track?.audioUrl || deckB.track?.preview}
+      progress={deckBProgress}
+      accent="dark"
+      height={waveformHeight}
+      durationSec={durB}
+      cuePoints={cuePointsB}
+      loopRegion={loopRegionB}
+      onScratchStart={(s) => { engineBRef.current?.beginScratch(s); }}
+      onScratchMove={(sp, rev, s) => { engineBRef.current?.updateScratch(sp, rev, s); }}
+      onScratchEnd={(s) => { engineBRef.current?.endScratch(s); }}
+    />
+  );
+
+  const progressBar = playlistLength > 0 ? (
+    <Box sx={{ mt: 1.5, position: "relative", height: 10 }}>
+      <Box
+        sx={{
+          position: "absolute", inset: 0,
+          bgcolor: alpha("#000", 0.75), borderRadius: 999, overflow: "hidden",
+          border: `1px solid ${alpha(red, 0.15)}`,
+        }}
+      >
+        <Box
+          sx={{
+            position: "absolute", top: 0, left: 0, height: "100%",
+            width: `${progress}%`,
+            background: `linear-gradient(90deg, ${theme.palette.primary.dark}, ${red}, ${redLight})`,
+            transition: "width 0.12s linear",
+            willChange: "width",
+          }}
+        />
+      </Box>
+      <ThresholdOverlay
+        progress={progress / 100}
+        switchPoint={switchPoint}
+        onSwitchPointChange={onSwitchPointChange}
+      />
+    </Box>
+  ) : null;
+
+  const skipBtnSize = isMobile ? 48 : 64;
+  const skipIconSize = isMobile ? 28 : 36;
+  const transportButtons = (
+    <Stack direction="row" spacing={isMobile ? 2 : 4} alignItems="center" justifyContent="center" sx={{ mt: isMobile ? 2 : 4, mb: 1 }}>
+      <IconButton
+        onClick={onSkipPrev}
+        disabled={!canSkipPrev}
+        sx={{
+          width: skipBtnSize, height: skipBtnSize,
+          color: "text.secondary",
+          ...machinedButton,
+          borderRadius: 2.5,
+          border: `1px solid ${alpha(red, 0.35)}`,
+          "&:hover": { color: redLight, filter: "brightness(1.15)" },
+          "&.Mui-disabled": { opacity: 0.25, color: "text.disabled" },
+        }}
+      >
+        <SkipPreviousIcon sx={{ fontSize: skipIconSize }} />
+      </IconButton>
+
+      <Stack alignItems="center" spacing={0.25} sx={{ minWidth: 70 }}>
+        <Typography
+          variant="caption"
+          sx={{ color: "text.disabled", fontFamily: "monospace", fontSize: 11 }}
+        >
+          {currentIndex + 1} / {playlistLength}
+        </Typography>
+        {isCrossfading && (
+          <Typography
+            variant="caption"
+            sx={{
+              color: redLight, fontSize: 10,
+              animation: "mui-pulse 1.2s ease-in-out infinite",
+              "@keyframes mui-pulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.4 } },
+            }}
+          >
+            crossfading
+          </Typography>
+        )}
+        {!isCrossfading && (
+          <Typography variant="caption" sx={{ color: "text.disabled", fontSize: 10 }}>
+            {(crossfadeMs / 1000).toFixed(1)}s xfade
+          </Typography>
+        )}
+      </Stack>
+
+      <IconButton
+        onClick={onSkipNext}
+        disabled={!canSkipNext}
+        sx={{
+          width: skipBtnSize, height: skipBtnSize,
+          color: "text.secondary",
+          ...machinedButton,
+          borderRadius: 2.5,
+          border: `1px solid ${alpha(red, 0.35)}`,
+          "&:hover": { color: redLight, filter: "brightness(1.15)" },
+          "&.Mui-disabled": { opacity: 0.25, color: "text.disabled" },
+        }}
+      >
+        <SkipNextIcon sx={{ fontSize: skipIconSize }} />
+      </IconButton>
+    </Stack>
+  );
+
+  const effectsPadSize = isMobile ? 34 : 38;
+  const effectsGrid = effects.length > 0 && onTriggerEffect ? (
+    <Box sx={{ mt: 1.5 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${Math.min(effects.length, 4)}, ${effectsPadSize}px)`,
+          gap: "6px",
+          justifyContent: "center",
+          p: 1.25,
+          borderRadius: "4px",
+          background: [
+            `repeating-linear-gradient(90deg, ${alpha("#fff", 0.015)} 0px, transparent 1px, transparent 3px)`,
+            `repeating-linear-gradient(90deg, ${alpha("#000", 0.03)} 0px, transparent 1px, transparent 5px)`,
+            `linear-gradient(175deg, ${alpha("#2a2a2a", 0.95)} 0%, ${alpha("#1e1e1e", 0.97)} 40%, ${alpha("#161616", 0.98)} 100%)`,
+          ].join(", "),
+          border: `1px solid ${alpha("#444", 0.5)}`,
+          borderTop: `1px solid ${alpha("#555", 0.5)}`,
+          borderBottom: `1px solid ${alpha("#222", 0.6)}`,
+          boxShadow: [
+            `inset 0 1px 0 ${alpha("#fff", 0.04)}`,
+            `inset 0 -1px 0 ${alpha("#000", 0.3)}`,
+            `inset 0 2px 4px ${alpha("#000", 0.25)}`,
+            `0 2px 4px ${alpha("#000", 0.4)}`,
+            `0 1px 0 ${alpha("#333", 0.15)}`,
+          ].join(", "),
+        }}
+      >
+        {effects.map((eff) => {
+          const isActive = playingEffects?.has(eff.name) ?? false;
+          return (
+            <Tooltip key={eff.name} title={eff.label} placement="top" arrow
+              slotProps={{
+                tooltip: {
+                  sx: {
+                    bgcolor: alpha("#1a1a1a", 0.95),
+                    color: "#fff",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: 1,
+                    border: `1px solid ${alpha(red, 0.3)}`,
+                    backdropFilter: "blur(8px)",
+                  },
+                },
+                arrow: { sx: { color: alpha("#1a1a1a", 0.95) } },
+              }}
+            >
+              <Box
+                role="button"
+                onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
+                sx={{
+                  cursor: "pointer",
+                  userSelect: "none",
+                  width: effectsPadSize,
+                  height: effectsPadSize,
+                  borderRadius: "2px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  position: "relative",
+                  background: isActive
+                    ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
+                    : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
+                  border: `1px solid ${alpha(isActive ? red : "#333", isActive ? 0.5 : 0.35)}`,
+                  boxShadow: isActive
+                    ? `0 0 14px ${alpha(red, 0.3)}, inset 0 1px 3px ${alpha("#000", 0.5)}`
+                    : `inset 0 1px 3px ${alpha("#000", 0.5)}, 0 1px 0 ${alpha("#222", 0.15)}`,
+                  transition: "all 0.1s ease",
+                  "&:hover": {
+                    border: `1px solid ${alpha(red, 0.5)}`,
+                    boxShadow: `0 0 8px ${alpha(red, 0.2)}, inset 0 1px 3px ${alpha("#000", 0.5)}`,
+                  },
+                  "&:active": {
+                    transform: "scale(0.93)",
+                    boxShadow: `inset 0 2px 6px ${alpha("#000", 0.7)}`,
+                  },
+                }}
+              >
+                <Box sx={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  position: "relative",
+                  border: `1.5px solid ${alpha("#222", 0.8)}`,
+                  background: isActive
+                    ? `radial-gradient(circle at 40% 35%, ${alpha("#ff6b6b", 0.95)}, ${red} 50%, ${alpha("#8b0000", 0.9)} 100%)`
+                    : `radial-gradient(circle at 40% 35%, ${alpha("#3a1515", 0.8)}, ${alpha("#1a0808", 0.9)} 70%)`,
+                  boxShadow: isActive
+                    ? [
+                        `0 0 3px 1px ${alpha(red, 0.9)}`,
+                        `0 0 8px 2px ${alpha(red, 0.5)}`,
+                        `0 0 16px 4px ${alpha(red, 0.25)}`,
+                        `inset 0 -1px 2px ${alpha("#ff9999", 0.3)}`,
+                      ].join(", ")
+                    : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                  transition: "all 0.12s ease",
+                  "&::after": isActive ? {
+                    content: '""',
+                    position: "absolute",
+                    top: "15%",
+                    left: "25%",
+                    width: "35%",
+                    height: "30%",
+                    borderRadius: "50%",
+                    background: `radial-gradient(ellipse, ${alpha("#fff", 0.6)}, transparent)`,
+                  } : {},
+                }} />
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+    </Box>
+  ) : null;
+
+  // ── MOBILE LAYOUT ────────────────────────────────────────────
+  if (isMobile) {
+    const activeCtrl = mobileDeck === "A" ? ctrlA : ctrlB;
+    const activeDeckProps = mobileDeck === "A" ? deckA : deckB;
+    const activeEngineRef = mobileDeck === "A" ? engineARef : engineBRef;
+
+    return (
+      <Paper
+        elevation={8}
+        sx={{
+          p: 1.5, borderRadius: 2,
+          position: "relative",
+          border: `1px solid ${alpha(red, 0.3)}`,
+          ...darkBrushedPanel,
+          "&::after": {
+            content: '""',
+            position: "absolute",
+            inset: 0,
+            borderRadius: 2,
+            pointerEvents: "none",
+            boxShadow: `0 0 0 1px ${alpha(red, 0.12)}, 0 10px 30px ${alpha("#000", 0.7)}`,
+          },
+        }}
+      >
+        {/* Deck A/B toggle */}
+        <Stack direction="row" spacing={0.5} justifyContent="center" sx={{ mb: 1.5 }}>
+          {(["A", "B"] as const).map((d) => (
+            <Box
+              key={d}
+              onClick={() => setMobileDeck(d)}
+              sx={{
+                cursor: "pointer",
+                px: 2, py: 0.5,
+                borderRadius: "3px",
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: 2,
+                color: mobileDeck === d ? "#fff" : alpha("#fff", 0.35),
+                border: `1px solid ${alpha(red, mobileDeck === d ? 0.7 : 0.2)}`,
+                background: mobileDeck === d
+                  ? `linear-gradient(180deg, ${alpha(red, 0.45)}, ${alpha(red, 0.2)})`
+                  : alpha("#0a0a0a", 0.8),
+                boxShadow: mobileDeck === d
+                  ? `0 0 10px ${alpha(red, 0.3)}, inset 0 1px 0 ${alpha("#fff", 0.1)}`
+                  : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
+                transition: "all 0.15s ease",
+              }}
+            >
+              DECK {d}
+            </Box>
+          ))}
+        </Stack>
+
+        {/* Compact turntable + track info row */}
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5, px: 0.5 }}>
+          <Box sx={{ flexShrink: 0 }}>
+            <Turntable
+              deckId={mobileDeck}
+              size={80}
+              isPlaying={activeDeckProps.isPlaying}
+              coverUrl={activeDeckProps.track?.cover}
+              bpm={activeDeckProps.track?.bpm ?? 120}
+              duration={activeDeckProps.track?.duration}
+              accentColor={mobileDeck === "A" ? "red" : "redDark"}
+              audioUrl={activeDeckProps.track?.audioUrl || activeDeckProps.track?.preview}
+              volume={activeDeckProps.volume}
+              autoScratchTrigger={activeDeckProps.autoScratchTrigger}
+              onScratchStart={activeDeckProps.onScratchStart}
+              onScratchEnd={activeDeckProps.onScratchEnd}
+              onTimeUpdate={activeDeckProps.onTimeUpdate}
+              engineRef={activeEngineRef}
+            />
+          </Box>
+          <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.25}>
+            <Stack direction="row" alignItems="baseline" spacing={0.75}>
+              <Typography variant="h6" sx={{ fontFamily: "monospace", color: redLight, fontWeight: 800, lineHeight: 1, fontSize: 18 }}>
+                {activeDeckProps.track?.bpm
+                  ? (activeDeckProps.track.bpm * activeCtrl.tempo * (1 + activeCtrl.pitch * 0.03)).toFixed(1)
+                  : "---.-"}
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.disabled", fontSize: 9 }}>BPM</Typography>
+            </Stack>
+            {activeDeckProps.track ? (
+              <>
+                <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }}>
+                  {activeDeckProps.track.title}
+                </Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 11 }}>
+                  {activeDeckProps.track.artist}
+                </Typography>
+              </>
+            ) : (
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>— empty —</Typography>
+            )}
+          </Stack>
+        </Stack>
+
+        {/* Waveforms — both always rendered (audio engines stay mounted) */}
+        <Stack spacing={0.5}>
+          {waveformA}
+          <Box sx={{ borderBottom: `1px solid ${alpha(red, 0.18)}` }} />
+          {waveformB}
+        </Stack>
+
+        {progressBar}
+        {transportButtons}
+        {effectsGrid}
+
+        {/* Compact controls strip — tempo, pitch, EQ, cue, loop */}
+        <Box sx={{ ...machinedSeam, mt: 2, mb: 1.5 }} />
+
+        {/* Tempo + Pitch row */}
+        <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="center" sx={{ mb: 1.5 }}>
+          <Knob value={activeCtrl.tempo} onChange={activeCtrl.setTempo} min={0.85} max={1.15} label="TEMPO" size={34} centerDetent />
+          <Box sx={{ height: 60, display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Slider
+              orientation="vertical"
+              value={activeCtrl.pitch}
+              min={-1} max={1} step={0.01}
+              onChange={(_, v) => activeCtrl.setPitch(v as number)}
+              sx={{
+                height: 54, color: red,
+                "& .MuiSlider-thumb": { width: 14, height: 8, borderRadius: 0.5, bgcolor: "#eee", border: `1px solid ${alpha(red, 0.6)}` },
+                "& .MuiSlider-rail": { opacity: 1, bgcolor: alpha("#000", 0.8) },
+                "& .MuiSlider-track": { border: "none", bgcolor: alpha(red, 0.5) },
+              }}
+            />
+            <Typography variant="caption" sx={{ fontSize: 7, color: "text.disabled", letterSpacing: 1, writingMode: "vertical-rl" }}>PITCH</Typography>
+          </Box>
+          <Button
+            onClick={activeCtrl.toggleSync}
+            size="small"
+            sx={{
+              minWidth: 48, height: 22, fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
+              color: activeCtrl.sync ? "#fff" : "text.secondary",
+              border: `1px solid ${alpha(red, activeCtrl.sync ? 0.85 : 0.3)}`,
+              borderRadius: 0.75,
+              ...machinedButton,
+              ...(activeCtrl.sync && {
+                background: `linear-gradient(180deg, ${alpha(red, 0.55)} 0%, ${alpha(theme.palette.primary.dark, 0.9)} 100%)`,
+                boxShadow: `0 0 12px ${alpha(red, 0.55)}, inset 0 1px 0 rgba(255,255,255,0.25)`,
+              }),
+            }}
+          >
+            SYNC
+          </Button>
+        </Stack>
+
+        {/* EQ knobs row */}
+        <Stack direction="row" spacing={1.5} justifyContent="center" sx={{ mb: 1.5 }}>
+          <Knob value={activeCtrl.eqHigh} onChange={activeCtrl.setEqHigh} min={-12} max={12} label="HIGH" size={34} centerDetent />
+          <Knob value={activeCtrl.eqMid} onChange={activeCtrl.setEqMid} min={-12} max={12} label="MID" size={34} centerDetent />
+          <Knob value={activeCtrl.eqLow} onChange={activeCtrl.setEqLow} min={-12} max={12} label="LOW" size={34} centerDetent />
+        </Stack>
+
+        {/* Cue + Loop row */}
+        <Stack direction="row" spacing={1.5} justifyContent="center" sx={{ mb: 1.5 }}>
+          <Stack direction="row" spacing={0.5}>
+            {[0, 1, 2, 3].map((i) => {
+              const set = activeCtrl.cues[i] !== null;
+              return (
+                <Box
+                  key={i}
+                  onClick={(e) => activeCtrl.toggleCue(i, e.shiftKey)}
+                  sx={{
+                    width: 24, height: 20,
+                    border: `1px solid ${alpha(red, set ? 0.8 : 0.3)}`,
+                    borderRadius: 0.5,
+                    bgcolor: set ? alpha(red, 0.35) : alpha("#000", 0.6),
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 8, fontFamily: "monospace", fontWeight: 700,
+                    color: set ? "#fff" : "text.disabled",
+                    cursor: "pointer",
+                  }}
+                >
+                  {i + 1}
+                </Box>
+              );
+            })}
+          </Stack>
+          <Stack direction="row" spacing={0.5}>
+            <LoopButton label="IN" onClick={activeCtrl.markLoopIn} active={activeCtrl.loopIn !== null} />
+            <LoopButton label="OUT" onClick={activeCtrl.markLoopOut} active={activeCtrl.loopOut !== null} />
+            <LoopButton label="LOOP" onClick={activeCtrl.toggleLoop} active={activeCtrl.loopActive} disabled={activeCtrl.loopIn === null || activeCtrl.loopOut === null} />
+          </Stack>
+        </Stack>
+
+        {/* Crossfader full-width */}
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 0.5 }}>
+          <VerticalMini value={mobileDeck === "A" ? gainA : gainB} onChange={mobileDeck === "A" ? setGainA : setGainB} label="GAIN" />
+          <Box sx={{ flex: 1 }}>
+            <Crossfader value={crossfaderValue} onChange={onCrossfaderChange} />
+          </Box>
+          <VerticalMini value={mobileDeck === "A" ? trimA : trimB} onChange={mobileDeck === "A" ? setTrimA : setTrimB} label="TRIM" />
+        </Stack>
+      </Paper>
+    );
+  }
+
+  // ── DESKTOP LAYOUT (unchanged) ───────────────────────────────
   return (
     <Paper
       elevation={8}
@@ -701,7 +1140,6 @@ export function DeckLayout({
         position: "relative",
         border: `1px solid ${alpha(red, 0.3)}`,
         ...darkBrushedPanel,
-        // Keep the red outer glow on top of the metal chassis.
         "&::after": {
           content: '""',
           position: "absolute",
@@ -716,240 +1154,12 @@ export function DeckLayout({
         <DeckSide deckId="A" accentColor="red" ctrl={ctrlA} engineRef={engineARef} {...deckA} />
 
         <Stack spacing={0.75} sx={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
-          <WaveformLane
-            audioUrl={deckA.track?.audioUrl || deckA.track?.preview}
-            progress={deckAProgress}
-            accent="bright"
-            height={waveformHeight}
-            durationSec={durA}
-            cuePoints={cuePointsA}
-            loopRegion={loopRegionA}
-            onScratchStart={(s) => { engineARef.current?.beginScratch(s); }}
-            onScratchMove={(sp, rev, s) => { engineARef.current?.updateScratch(sp, rev, s); }}
-            onScratchEnd={(s) => { engineARef.current?.endScratch(s); }}
-          />
+          {waveformA}
           <Box sx={{ borderBottom: `1px solid ${alpha(red, 0.18)}` }} />
-          <WaveformLane
-            audioUrl={deckB.track?.audioUrl || deckB.track?.preview}
-            progress={deckBProgress}
-            accent="dark"
-            height={waveformHeight}
-            durationSec={durB}
-            cuePoints={cuePointsB}
-            loopRegion={loopRegionB}
-            onScratchStart={(s) => { engineBRef.current?.beginScratch(s); }}
-            onScratchMove={(sp, rev, s) => { engineBRef.current?.updateScratch(sp, rev, s); }}
-            onScratchEnd={(s) => { engineBRef.current?.endScratch(s); }}
-          />
-
-          {playlistLength > 0 && (
-            <Box sx={{ mt: 1.5, position: "relative", height: 10 }}>
-              <Box
-                sx={{
-                  position: "absolute", inset: 0,
-                  bgcolor: alpha("#000", 0.75), borderRadius: 999, overflow: "hidden",
-                  border: `1px solid ${alpha(red, 0.15)}`,
-                }}
-              >
-                <Box
-                  sx={{
-                    position: "absolute", top: 0, left: 0, height: "100%",
-                    width: `${progress}%`,
-                    background: `linear-gradient(90deg, ${theme.palette.primary.dark}, ${red}, ${redLight})`,
-                    transition: "width 0.12s linear",
-                    willChange: "width",
-                  }}
-                />
-              </Box>
-              <ThresholdOverlay
-                progress={progress / 100}
-                switchPoint={switchPoint}
-                onSwitchPointChange={onSwitchPointChange}
-              />
-            </Box>
-          )}
-
-          {/* Big transport skip buttons — spaced well below the seek bar */}
-          <Stack direction="row" spacing={4} alignItems="center" justifyContent="center" sx={{ mt: 4, mb: 1 }}>
-            <IconButton
-              onClick={onSkipPrev}
-              disabled={!canSkipPrev}
-              sx={{
-                width: 64, height: 64,
-                color: "text.secondary",
-                ...machinedButton,
-                borderRadius: 2.5,
-                border: `1px solid ${alpha(red, 0.35)}`,
-                "&:hover": { color: redLight, filter: "brightness(1.15)" },
-                "&.Mui-disabled": { opacity: 0.25, color: "text.disabled" },
-              }}
-            >
-              <SkipPreviousIcon sx={{ fontSize: 36 }} />
-            </IconButton>
-
-            <Stack alignItems="center" spacing={0.25} sx={{ minWidth: 80 }}>
-              <Typography
-                variant="caption"
-                sx={{ color: "text.disabled", fontFamily: "monospace", fontSize: 11 }}
-              >
-                {currentIndex + 1} / {playlistLength}
-              </Typography>
-              {isCrossfading && (
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: redLight, fontSize: 10,
-                    animation: "mui-pulse 1.2s ease-in-out infinite",
-                    "@keyframes mui-pulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.4 } },
-                  }}
-                >
-                  crossfading
-                </Typography>
-              )}
-              {!isCrossfading && (
-                <Typography variant="caption" sx={{ color: "text.disabled", fontSize: 10 }}>
-                  {(crossfadeMs / 1000).toFixed(1)}s xfade
-                </Typography>
-              )}
-            </Stack>
-
-            <IconButton
-              onClick={onSkipNext}
-              disabled={!canSkipNext}
-              sx={{
-                width: 64, height: 64,
-                color: "text.secondary",
-                ...machinedButton,
-                borderRadius: 2.5,
-                border: `1px solid ${alpha(red, 0.35)}`,
-                "&:hover": { color: redLight, filter: "brightness(1.15)" },
-                "&.Mui-disabled": { opacity: 0.25, color: "text.disabled" },
-              }}
-            >
-              <SkipNextIcon sx={{ fontSize: 36 }} />
-            </IconButton>
-          </Stack>
-
-          {/* ── Effects Pad Grid ────────────────────────────────── */}
-          {effects.length > 0 && onTriggerEffect && (
-            <Box sx={{ mt: 1.5 }}>
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: `repeat(${Math.min(effects.length, 4)}, 38px)`,
-                  gap: "6px",
-                  justifyContent: "center",
-                  p: 1.25,
-                  borderRadius: "4px",
-                  // Brushed-metal base with noise texture
-                  background: [
-                    `repeating-linear-gradient(90deg, ${alpha("#fff", 0.015)} 0px, transparent 1px, transparent 3px)`,
-                    `repeating-linear-gradient(90deg, ${alpha("#000", 0.03)} 0px, transparent 1px, transparent 5px)`,
-                    `linear-gradient(175deg, ${alpha("#2a2a2a", 0.95)} 0%, ${alpha("#1e1e1e", 0.97)} 40%, ${alpha("#161616", 0.98)} 100%)`,
-                  ].join(", "),
-                  border: `1px solid ${alpha("#444", 0.5)}`,
-                  borderTop: `1px solid ${alpha("#555", 0.5)}`,
-                  borderBottom: `1px solid ${alpha("#222", 0.6)}`,
-                  boxShadow: [
-                    `inset 0 1px 0 ${alpha("#fff", 0.04)}`,
-                    `inset 0 -1px 0 ${alpha("#000", 0.3)}`,
-                    `inset 0 2px 4px ${alpha("#000", 0.25)}`,
-                    `0 2px 4px ${alpha("#000", 0.4)}`,
-                    `0 1px 0 ${alpha("#333", 0.15)}`,
-                  ].join(", "),
-                }}
-              >
-                {effects.map((eff) => {
-                  const isActive = playingEffects?.has(eff.name) ?? false;
-                  return (
-                    <Tooltip key={eff.name} title={eff.label} placement="top" arrow
-                      slotProps={{
-                        tooltip: {
-                          sx: {
-                            bgcolor: alpha("#1a1a1a", 0.95),
-                            color: "#fff",
-                            fontSize: 10,
-                            fontWeight: 700,
-                            letterSpacing: 1,
-                            border: `1px solid ${alpha(red, 0.3)}`,
-                            backdropFilter: "blur(8px)",
-                          },
-                        },
-                        arrow: { sx: { color: alpha("#1a1a1a", 0.95) } },
-                      }}
-                    >
-                      <Box
-                        role="button"
-                        onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
-                        sx={{
-                          cursor: "pointer",
-                          userSelect: "none",
-                          width: 38,
-                          height: 38,
-                          borderRadius: "2px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          position: "relative",
-                          // Rubber pad surface
-                          background: isActive
-                            ? `linear-gradient(145deg, ${alpha("#1c1c1c", 0.9)}, ${alpha("#0e0e0e", 0.95)})`
-                            : `linear-gradient(145deg, ${alpha("#181818", 0.9)}, ${alpha("#0a0a0a", 0.95)})`,
-                          border: `1px solid ${alpha(isActive ? red : "#333", isActive ? 0.5 : 0.35)}`,
-                          boxShadow: isActive
-                            ? `0 0 14px ${alpha(red, 0.3)}, inset 0 1px 3px ${alpha("#000", 0.5)}`
-                            : `inset 0 1px 3px ${alpha("#000", 0.5)}, 0 1px 0 ${alpha("#222", 0.15)}`,
-                          transition: "all 0.1s ease",
-                          "&:hover": {
-                            border: `1px solid ${alpha(red, 0.5)}`,
-                            boxShadow: `0 0 8px ${alpha(red, 0.2)}, inset 0 1px 3px ${alpha("#000", 0.5)}`,
-                          },
-                          "&:active": {
-                            transform: "scale(0.93)",
-                            boxShadow: `inset 0 2px 6px ${alpha("#000", 0.7)}`,
-                          },
-                        }}
-                      >
-                        {/* Realistic LED light */}
-                        <Box sx={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: "50%",
-                          position: "relative",
-                          // LED housing ring
-                          border: `1.5px solid ${alpha("#222", 0.8)}`,
-                          // LED bulb
-                          background: isActive
-                            ? `radial-gradient(circle at 40% 35%, ${alpha("#ff6b6b", 0.95)}, ${red} 50%, ${alpha("#8b0000", 0.9)} 100%)`
-                            : `radial-gradient(circle at 40% 35%, ${alpha("#3a1515", 0.8)}, ${alpha("#1a0808", 0.9)} 70%)`,
-                          boxShadow: isActive
-                            ? [
-                                `0 0 3px 1px ${alpha(red, 0.9)}`,
-                                `0 0 8px 2px ${alpha(red, 0.5)}`,
-                                `0 0 16px 4px ${alpha(red, 0.25)}`,
-                                `inset 0 -1px 2px ${alpha("#ff9999", 0.3)}`,
-                              ].join(", ")
-                            : `inset 0 1px 2px ${alpha("#000", 0.5)}`,
-                          transition: "all 0.12s ease",
-                          // Hot-spot highlight on active LED
-                          "&::after": isActive ? {
-                            content: '""',
-                            position: "absolute",
-                            top: "15%",
-                            left: "25%",
-                            width: "35%",
-                            height: "30%",
-                            borderRadius: "50%",
-                            background: `radial-gradient(ellipse, ${alpha("#fff", 0.6)}, transparent)`,
-                          } : {},
-                        }} />
-                      </Box>
-                    </Tooltip>
-                  );
-                })}
-              </Box>
-            </Box>
-          )}
+          {waveformB}
+          {progressBar}
+          {transportButtons}
+          {effectsGrid}
         </Stack>
 
         <DeckSide deckId="B" accentColor="redDark" ctrl={ctrlB} engineRef={engineBRef} {...deckB} mirror />
