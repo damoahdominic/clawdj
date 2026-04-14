@@ -322,38 +322,53 @@ export function Turntable({
       >
         <defs>
           <radialGradient id={vinylId} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#080808" />
-            <stop offset="13%" stopColor="#1a1a1a" />
-            <stop offset="14%" stopColor="#0c0c0c" />
-            <stop offset="23%" stopColor="#1a1a1a" />
-            <stop offset="24%" stopColor="#0c0c0c" />
-            <stop offset="33%" stopColor="#191919" />
-            <stop offset="34%" stopColor="#0c0c0c" />
-            <stop offset="43%" stopColor="#1a1a1a" />
-            <stop offset="44%" stopColor="#0c0c0c" />
-            <stop offset="53%" stopColor="#191919" />
-            <stop offset="54%" stopColor="#0c0c0c" />
-            <stop offset="63%" stopColor="#1a1a1a" />
-            <stop offset="64%" stopColor="#0c0c0c" />
-            <stop offset="73%" stopColor="#191919" />
-            <stop offset="74%" stopColor="#0c0c0c" />
-            <stop offset="83%" stopColor="#1a1a1a" />
-            <stop offset="84%" stopColor="#111" />
-            <stop offset="100%" stopColor="#0d0d0d" />
+            <stop offset="0%" stopColor="#1a1a1a" />
+            <stop offset="55%" stopColor="#141414" />
+            <stop offset="92%" stopColor="#101010" />
+            <stop offset="100%" stopColor="#050505" />
+          </radialGradient>
+          <radialGradient id={`${vinylId}-sheen`} cx="50%" cy="28%" r="65%">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.10)" />
+            <stop offset="55%" stopColor="rgba(255,255,255,0.02)" />
+            <stop offset="100%" stopColor="rgba(255,255,255,0)" />
           </radialGradient>
           <radialGradient id={labelId} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={gradientMid} />
             <stop offset="65%" stopColor={gradientEnd} />
             <stop offset="100%" stopColor={isBright ? "#3b0505" : "#1f0202"} />
           </radialGradient>
+          <linearGradient id={`${vinylId}-marker`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={color} stopOpacity="0" />
+            <stop offset="25%" stopColor={color} stopOpacity="0.9" />
+            <stop offset="100%" stopColor="rgba(255,255,255,0.95)" />
+          </linearGradient>
           <clipPath id={clipId}>
             <circle cx="100" cy="100" r="72" />
           </clipPath>
         </defs>
 
         <g id={`rg_${deckId}`}>
+          {/* Disc body */}
           <circle cx="100" cy="100" r="96" fill={`url(#${vinylId})`} />
-          <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth="0.4" />
+          {/* Concentric groove hints — subtle, modern */}
+          {[90, 84, 78, 72, 66, 60, 54, 48, 42, 36, 30].map((r) => (
+            <circle key={r} cx="100" cy="100" r={r} fill="none"
+              stroke="rgba(255,255,255,0.035)" strokeWidth="0.4" />
+          ))}
+          {/* Outer bevel */}
+          <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="0.8" />
+          <circle cx="100" cy="100" r="94" fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth="0.6" />
+          {/* Top-lit sheen for a modern disc look */}
+          <circle cx="100" cy="100" r="96" fill={`url(#${vinylId}-sheen)`} pointerEvents="none" />
+
+          {/* Radial index marker — rotates with the disc to sell the spin */}
+          <rect
+            x="99.3" y="6" width="1.4" height="94"
+            fill={`url(#${vinylId}-marker)`}
+            rx="0.7"
+            opacity="0.85"
+          />
+
           {!coverUrl && <circle cx="100" cy="100" r="26" fill={`url(#${labelId})`} />}
           {coverUrl && (
             <image
@@ -386,13 +401,10 @@ export function Turntable({
               {deckId}
             </text>
           )}
-          {!coverUrl && <circle cx="100" cy="100" r="3.5" fill="#030303" />}
+          {/* Spindle hub — modern chrome feel */}
+          <circle cx="100" cy="100" r="4.5" fill="#1a1a1a" stroke="rgba(255,255,255,0.35)" strokeWidth="0.6" />
+          <circle cx="100" cy="100" r="1.4" fill="#050505" />
         </g>
-
-        {/* Tonearm (static) */}
-        <line x1="182" y1="22" x2="148" y2="82" stroke="#666" strokeWidth="2.5" strokeLinecap="round" />
-        <circle cx="148" cy="84" r="5" fill="#777" />
-        <circle cx="148" cy="84" r="2.5" fill={color} />
       </svg>
 
       {isDragging && (
