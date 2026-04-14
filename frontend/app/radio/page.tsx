@@ -21,8 +21,10 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import TuneIcon from "@mui/icons-material/Tune";
+import SearchIcon from "@mui/icons-material/Search";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
+import CircularProgress from "@mui/material/CircularProgress";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { DeckLayout, type DeckTrack } from "../../components/DeckLayout";
 import type { EffectDef } from "../../components/EffectsPanel";
@@ -1155,22 +1157,26 @@ function RadioView(props: RadioViewProps) {
                   },
                 }}
               />
-              <Button
+              <IconButton
                 onClick={loadPlaylist}
                 disabled={loading || !vibeQuery.trim()}
-                variant="contained"
                 sx={{
-                  px: { xs: 2.5, sm: 4 },
-                  minWidth: { xs: 48, sm: "auto" },
+                  width: 44, height: 44, flexShrink: 0,
                   background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                   boxShadow: `0 6px 18px ${alpha(red, 0.45)}`,
+                  color: "#fff",
                   "&:hover": {
                     background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})`,
                   },
+                  "&.Mui-disabled": { opacity: 0.35, color: "#fff" },
                 }}
               >
-                {loading ? "..." : "Go"}
-              </Button>
+                {loading ? (
+                  <CircularProgress size={22} thickness={5} sx={{ color: "#fff" }} />
+                ) : (
+                  <SearchIcon />
+                )}
+              </IconButton>
             </Stack>
             {detected && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ pl: 0.5 }}>
