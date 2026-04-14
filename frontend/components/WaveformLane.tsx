@@ -175,6 +175,10 @@ export function WaveformLane({
   // read as a smooth scroll.
   const targetProgressRef = useRef(progress);
   const shownProgressRef = useRef(progress);
+  // Track whether progress is actually advancing (playing) vs jittering (paused).
+  const lastStableTargetRef = useRef(progress);
+  const stableCountRef = useRef(0);
+  const frozenRef = useRef(false);
 
   // Drag-to-scratch local state. When dragging, overrideProgressRef takes
   // precedence in the RAF loop so the waveform scrolls with the pointer.
@@ -185,13 +189,31 @@ export function WaveformLane({
   const dragSecRef = useRef(0);
   const dragLastDirRef = useRef<1 | -1>(1);
   useEffect(() => {
-    targetProgressRef.current = progress;
+    const delta = Math.abs(progress - lastStableTargetRef.current);
+    if (delta < 0.002) {
+      // Progress barely moved — likely paused or jittering
+      stableCountRef.current++;
+      if (stableCountRef.current > 3) {
+        frozenRef.current = true;
+      }
+    } else {
+      // Real movement — unfreeze and track
+      stableCountRef.current = 0;
+      frozenRef.current = false;
+      lastStableTargetRef.current = progress;
+    }
+    if (!frozenRef.current) {
+      targetProgressRef.current = progress;
+    }
   }, [progress]);
 
   // Snap immediately on track change — no easing a 0→start jump.
   useEffect(() => {
     shownProgressRef.current = progress;
     targetProgressRef.current = progress;
+    lastStableTargetRef.current = progress;
+    frozenRef.current = false;
+    stableCountRef.current = 0;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl]);
 

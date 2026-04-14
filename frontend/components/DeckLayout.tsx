@@ -955,7 +955,14 @@ export function DeckLayout({
                           `inset 0 1px 1px ${alpha("#fff", 0.06)}`,
                           `inset 0 -1px 2px ${alpha("#000", 0.4)}`,
                         ].join(", "),
-                    transition: "all 0.12s ease",
+                    transition: isActive ? "none" : "all 0.12s ease",
+                    ...(isActive && {
+                      animation: "fx-glow-pulse 0.4s ease-in-out infinite",
+                      "@keyframes fx-glow-pulse": {
+                        "0%, 100%": { opacity: 1 },
+                        "50%": { opacity: 0.5 },
+                      },
+                    }),
                     "&::before": {
                       content: '""',
                       position: "absolute",
@@ -968,7 +975,7 @@ export function DeckLayout({
                       pointerEvents: "none",
                     },
                   }} />
-                  {/* Tiny status LED dot — bottom right */}
+                  {/* Tiny status LED dot — bottom right — blinks when playing */}
                   <Box className="fx-dot" sx={{
                     position: "absolute",
                     bottom: 3,
@@ -981,7 +988,14 @@ export function DeckLayout({
                       ? `0 0 4px ${alpha(c, 0.8)}, 0 0 8px ${alpha(c, 0.4)}`
                       : "none",
                     border: `0.5px solid ${alpha("#000", 0.4)}`,
-                    transition: "all 0.12s ease",
+                    transition: isActive ? "none" : "all 0.12s ease",
+                    ...(isActive && {
+                      animation: "fx-blink 0.4s ease-in-out infinite",
+                      "@keyframes fx-blink": {
+                        "0%, 100%": { opacity: 1 },
+                        "50%": { opacity: 0.15 },
+                      },
+                    }),
                   }} />
                 </Box>
               </Tooltip>
