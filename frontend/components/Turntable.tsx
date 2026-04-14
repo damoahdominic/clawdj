@@ -159,15 +159,15 @@ export function Turntable({
 
     if (isPlaying) {
       if (audioLoadedRef.current) {
-        engine.resume().then(() => {
+        engine.resume().then(async () => {
           const t = engine.getCurrentTime() ?? 0;
-          engine.play(t);
-          // Spin-up: ramp from slow to normal over ~400ms
+          await engine.play(t);
+          // play() sets playbackRate to baseRate — capture it, then override
           if (el) {
             const target = Math.max(0.0625, el.playbackRate);
             el.playbackRate = 0.0625;
             let rate = 0.0625;
-            const step = (target - 0.0625) / 12;
+            const step = (target - 0.0625) / 20; // ~20 steps at 33ms = ~660ms
             spinTimerRef.current = setInterval(() => {
               rate = Math.min(target, rate + step);
               el.playbackRate = rate;
