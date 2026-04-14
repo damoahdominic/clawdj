@@ -748,7 +748,7 @@ export function DeckLayout({
   const skipBtnSize = isMobile ? 48 : 64;
   const skipIconSize = isMobile ? 28 : 36;
   const transportButtons = (
-    <Stack direction="row" spacing={isMobile ? 2 : 4} alignItems="center" justifyContent="center" sx={{ mt: isMobile ? 2 : 4, mb: 1 }}>
+    <Stack direction="row" spacing={isMobile ? 2 : 4} alignItems="center" justifyContent="center" sx={{ mt: isMobile ? 2 : 4, mb: isMobile ? 1.5 : 2 }}>
       <IconButton
         onClick={onSkipPrev}
         disabled={!canSkipPrev}
