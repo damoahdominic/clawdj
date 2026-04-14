@@ -388,29 +388,19 @@ function DeckSide({
       </Button>
 
       {/* Transport */}
-      <Stack direction="row" spacing={0.5}>
-        <IconButton
-          size="small"
-          onClick={() => engineRef.current?.seekTo(0)}
-          sx={{ color: "text.secondary", "&:hover": { color: redLight, bgcolor: alpha(red, 0.1) } }}
-          title="Rewind to start"
-        >
-          <SkipPreviousIcon fontSize="small" />
-        </IconButton>
-        <IconButton
-          onClick={onPlayPause}
-          disabled={!track}
-          sx={{
-            width: 38, height: 38, color: "#fff",
-            background: `linear-gradient(135deg, ${red}, ${theme.palette.primary.dark})`,
-            boxShadow: `0 2px 10px ${alpha(red, 0.5)}`,
-            "&:hover": { background: `linear-gradient(135deg, ${redLight}, ${red})` },
-            "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
-          }}
-        >
-          {isPlaying ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
-        </IconButton>
-      </Stack>
+      <IconButton
+        onClick={onPlayPause}
+        disabled={!track}
+        sx={{
+          width: 38, height: 38, color: "#fff",
+          background: `linear-gradient(135deg, ${red}, ${theme.palette.primary.dark})`,
+          boxShadow: `0 2px 10px ${alpha(red, 0.5)}`,
+          "&:hover": { background: `linear-gradient(135deg, ${redLight}, ${red})` },
+          "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
+        }}
+      >
+        {isPlaying ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
+      </IconButton>
     </Stack>
   );
 }
