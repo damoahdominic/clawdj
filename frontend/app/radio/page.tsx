@@ -23,6 +23,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import { GameboyFrame } from "../../components/GameboyFrame";
+import { LoadingSequence } from "../../components/LoadingSequence";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -163,27 +164,58 @@ function LobsterBackground({
       renderer.setSize(w, h);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.0;
+      renderer.toneMappingExposure = 1.35;
       container.appendChild(renderer.domElement);
 
-      const ambient = new THREE.AmbientLight(0x221111, 1.0);
+      // Brighter ambient for overall visibility
+      const ambient = new THREE.AmbientLight(0xffffff, 0.55);
       scene.add(ambient);
 
-      const topSpot = new THREE.SpotLight(0xe53935, 4, 50, Math.PI / 4, 0.3);
-      topSpot.position.set(0, 18, 0);
-      scene.add(topSpot);
+      // Hemisphere light — sky / ground colour separation
+      const hemi = new THREE.HemisphereLight(0xffc9c9, 0x1a0a0a, 0.7);
+      hemi.position.set(0, 20, 0);
+      scene.add(hemi);
 
-      const redLight = new THREE.PointLight(0xff2200, 3, 30);
+      // Key directional light from camera-forward so the lobsters pop
+      const keyDir = new THREE.DirectionalLight(0xfff0e0, 1.8);
+      keyDir.position.set(6, 12, 8);
+      scene.add(keyDir);
+
+      // Fill directional light from the opposite side, cooler
+      const fillDir = new THREE.DirectionalLight(0xbfd8ff, 0.9);
+      fillDir.position.set(-8, 6, -4);
+      scene.add(fillDir);
+
+      const topSpot = new THREE.SpotLight(0xff5548, 6, 60, Math.PI / 3, 0.4);
+      topSpot.position.set(0, 22, 0);
+      topSpot.target.position.set(0, 0, 0);
+      scene.add(topSpot);
+      scene.add(topSpot.target);
+
+      const redLight = new THREE.PointLight(0xff2200, 5, 40);
       redLight.position.set(-8, 5, -3);
       scene.add(redLight);
 
-      const orangeLight = new THREE.PointLight(0xab000d, 3, 30);
+      const orangeLight = new THREE.PointLight(0xff6a00, 4, 40);
       orangeLight.position.set(8, 5, 3);
       scene.add(orangeLight);
 
-      const purpleLight = new THREE.PointLight(0x660000, 2, 25);
+      const purpleLight = new THREE.PointLight(0xaa00ff, 3, 30);
       purpleLight.position.set(0, 4, -8);
       scene.add(purpleLight);
+
+      // A couple of accent moving point lights for dance-floor energy
+      const accentBlue = new THREE.PointLight(0x3aa2ff, 3.5, 28);
+      accentBlue.position.set(5, 3, 6);
+      scene.add(accentBlue);
+
+      const accentCyan = new THREE.PointLight(0x00e0ff, 2.5, 26);
+      accentCyan.position.set(-6, 3, 6);
+      scene.add(accentCyan);
+
+      const accentPink = new THREE.PointLight(0xff3bd1, 3, 30);
+      accentPink.position.set(0, 7, 6);
+      scene.add(accentPink);
 
       const floorGeo = new THREE.PlaneGeometry(80, 80);
       const floorMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.2, metalness: 0.9 });
@@ -359,11 +391,24 @@ function LobsterBackground({
         }
 
         const pulse = Math.abs(Math.sin(t * bpmRate * Math.PI * 2));
-        redLight.intensity = 2 + pulse * 2 * intensity;
+
+        // Swirl the accent lights around in a small orbit so there's always
+        // motion across the lobsters.
+        accentBlue.position.x = 5 + Math.sin(t * 0.7) * 4;
+        accentBlue.position.z = 4 + Math.cos(t * 0.7) * 4;
+        accentBlue.intensity = 2.5 + pulse * 2 * intensity;
+        accentCyan.position.x = -6 + Math.cos(t * 0.9) * 4;
+        accentCyan.position.z = 4 + Math.sin(t * 0.9) * 4;
+        accentCyan.intensity = 1.8 + pulse * 1.8 * intensity;
+        accentPink.position.x = Math.sin(t * 0.5) * 6;
+        accentPink.position.z = 4 + Math.cos(t * 0.5) * 6;
+        accentPink.intensity = 2 + pulse * 2.2 * intensity;
+
+        redLight.intensity = 3 + pulse * 3 * intensity;
         redLight.position.x = -8 + Math.sin(t * 0.3) * 2;
-        orangeLight.intensity = 2 + pulse * 2 * intensity;
+        orangeLight.intensity = 3 + pulse * 2.5 * intensity;
         orangeLight.position.x = 8 + Math.cos(t * 0.3) * 2;
-        purpleLight.intensity = 1.5 + pulse * 1.5 * intensity;
+        purpleLight.intensity = 2 + pulse * 2 * intensity;
         purpleLight.position.z = -8 + Math.sin(t * 0.2) * 3;
         ringMat.opacity = 0.08 + pulse * 0.15 * intensity;
         const s = 1.0 + pulse * 0.15 * intensity;
@@ -1401,8 +1446,13 @@ function RadioView(props: RadioViewProps) {
         </Container>
       )}
 
-      {/* ── Active DJ state (has results or loading) ── */}
-      {(playlist.length > 0 || loading) && (
+      {/* ── Loading — show ONLY the todo sequence, nothing else ── */}
+      {loading && playlist.length === 0 && (
+        <LoadingSequence query={vibeQuery} />
+      )}
+
+      {/* ── Active DJ state (has results) ── */}
+      {playlist.length > 0 && (
       <Container
         maxWidth="md"
         sx={{
