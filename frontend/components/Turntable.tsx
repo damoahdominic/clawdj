@@ -302,11 +302,15 @@ export function Turntable({
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const isBright = accentColor === "red";
-  const color = isBright ? "#ef4444" : "#b71c1c";
-  const gradientEnd = isBright ? "#7f1d1d" : "#4a0505";
-  const gradientMid = isBright ? "#991b1b" : "#660a0a";
-  const glowColor = isBright ? "rgba(239,68,68,0.45)" : "rgba(183,28,28,0.45)";
+  // Side A → red, Side B → light blue. Keeps the two decks visually distinct.
+  const isSideA = deckId === "A";
+  const color = isSideA ? "#ef4444" : "#38bdf8";
+  const gradientMid = isSideA ? "#991b1b" : "#0369a1";
+  const gradientEnd = isSideA ? "#7f1d1d" : "#075985";
+  const gradientDeep = isSideA ? "#3b0505" : "#082f49";
+  const glowColor = isSideA ? "rgba(239,68,68,0.45)" : "rgba(56,189,248,0.45)";
+  // accentColor kept as an input hint but deck identity drives palette.
+  void accentColor;
   const vinylId = `vinyl-${deckId}`;
   const labelId = `label-${deckId}`;
   const clipId = `lclip-${deckId}`;
@@ -347,7 +351,7 @@ export function Turntable({
           <radialGradient id={labelId} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={gradientMid} />
             <stop offset="65%" stopColor={gradientEnd} />
-            <stop offset="100%" stopColor={isBright ? "#3b0505" : "#1f0202"} />
+            <stop offset="100%" stopColor={gradientDeep} />
           </radialGradient>
           <linearGradient id={`${vinylId}-marker`} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor={color} stopOpacity="0" />
@@ -372,14 +376,6 @@ export function Turntable({
           <circle cx="100" cy="100" r="94" fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth="0.6" />
           {/* Top-lit sheen for a modern disc look */}
           <circle cx="100" cy="100" r="96" fill={`url(#${vinylId}-sheen)`} pointerEvents="none" />
-
-          {/* Radial index marker — rotates with the disc to sell the spin */}
-          <rect
-            x="99.3" y="6" width="1.4" height="94"
-            fill={`url(#${vinylId}-marker)`}
-            rx="0.7"
-            opacity="0.85"
-          />
 
           {!coverUrl && <circle cx="100" cy="100" r="26" fill={`url(#${labelId})`} />}
           {coverUrl && (
@@ -413,9 +409,19 @@ export function Turntable({
               {deckId}
             </text>
           )}
-          {/* Spindle hub — modern chrome feel */}
-          <circle cx="100" cy="100" r="4.5" fill="#1a1a1a" stroke="rgba(255,255,255,0.35)" strokeWidth="0.6" />
-          <circle cx="100" cy="100" r="1.4" fill="#050505" />
+          {/* Radial index marker — sits ON TOP of the album art so the spin
+               is always visible. Thick bar + glow, coloured by deck. */}
+          <rect
+            x="98" y="7" width="4" height="92"
+            fill={`url(#${vinylId}-marker)`}
+            rx="2"
+            opacity="0.95"
+            style={{ filter: `drop-shadow(0 0 4px ${color})` }}
+          />
+          {/* Spindle hub — modern chrome feel, drawn after the marker so the
+               marker tapers cleanly into the hub. */}
+          <circle cx="100" cy="100" r="5" fill="#1a1a1a" stroke="rgba(255,255,255,0.4)" strokeWidth="0.7" />
+          <circle cx="100" cy="100" r="1.5" fill="#050505" />
         </g>
       </svg>
 
