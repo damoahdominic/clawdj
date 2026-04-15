@@ -365,7 +365,7 @@ export default function Radio() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [autoEffects, setAutoEffects] = useState(true);
   const [fullSongs, setFullSongs] = useState(true);
-  const [miniPlaylist, setMiniPlaylist] = useState(false);
+  const [miniPlaylist, setMiniPlaylist] = useState(true);
   const isDesktop = useMediaQuery("(min-width:768px)");
   const [playingEffects, setPlayingEffects] = useState<Set<string>>(() => new Set());
   const effectElsRef = useRef<Record<string, HTMLAudioElement>>({});
@@ -1387,7 +1387,7 @@ function RadioView(props: RadioViewProps) {
           </Stack>
 
           {(deckATrack || deckBTrack || playlist.length > 0) && (
-            <Box sx={{ position: "relative" }}>
+            <Box sx={{ position: "relative", overflow: "visible" }}>
               <DeckLayout
                 deckA={{
                   track: deckATrack,
@@ -1431,86 +1431,317 @@ function RadioView(props: RadioViewProps) {
                 onTriggerEffect={playEffect}
               />
 
-              {/* Mini playlist overlay — anchored to right edge, overlaps turntable B */}
-              {miniPlaylist && isDesktop && playlist.length > 0 && (
+              {/* Retractable playlist wing — docks to the right edge of the deck
+                   layout and slides outward so it doesn't overlap turntable B.
+                   Collapses to a thin tab when the user wants it out of the way. */}
+              {isDesktop && playlist.length > 0 && (
                 <Box
                   sx={{
                     position: "absolute",
-                    top: 8,
-                    right: 8,
-                    bottom: 8,
-                    width: 190,
+                    top: 0,
+                    bottom: 0,
+                    // When expanded the wing sits fully outside the deck's right
+                    // edge (left: 100% + a small gap). When retracted we slide
+                    // the bulk of it off-deck to the right, leaving only a
+                    // 22px tab peeking out.
+                    left: "100%",
+                    ml: 1,
+                    width: 236,
                     zIndex: 20,
-                    bgcolor: alpha("#000", 0.82),
-                    backdropFilter: "blur(12px)",
-                    borderRadius: 2,
-                    border: `1px solid ${alpha(red, 0.25)}`,
-                    boxShadow: `0 4px 24px ${alpha("#000", 0.6)}, 0 0 0 1px ${alpha("#000", 0.4)}`,
-                    display: "flex",
-                    flexDirection: "column",
-                    overflow: "hidden",
+                    transform: miniPlaylist ? "translateX(0)" : "translateX(214px)",
+                    transition: "transform 280ms cubic-bezier(0.22, 1, 0.36, 1)",
+                    pointerEvents: "auto",
                   }}
                 >
-                  {/* Header */}
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${alpha("#fff", 0.06)}`, flexShrink: 0 }}>
-                    <Typography sx={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.5, color: alpha(redLight, 0.6), textTransform: "uppercase" }}>
-                      Playlist
-                    </Typography>
-                    <IconButton size="small" onClick={() => setMiniPlaylist(false)} sx={{ color: "text.disabled", p: 0.25, "&:hover": { color: redLight } }}>
-                      <UnfoldMoreIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Stack>
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      borderRadius: "12px",
+                      overflow: "hidden",
+                      background: `linear-gradient(180deg, ${alpha("#0a0a0a", 0.92)} 0%, ${alpha("#050505", 0.95)} 100%)`,
+                      backdropFilter: "blur(16px)",
+                      WebkitBackdropFilter: "blur(16px)",
+                      border: `1px solid ${alpha(red, 0.22)}`,
+                      boxShadow: `
+                        0 12px 32px ${alpha("#000", 0.7)},
+                        0 0 0 1px ${alpha("#000", 0.4)},
+                        inset 0 1px 0 ${alpha("#fff", 0.04)}
+                      `,
+                    }}
+                  >
+                    {/* Retract/expand tab — sits on the left edge, sticks out
+                         slightly so it's always visible even when retracted. */}
+                    <Box
+                      onClick={() => setMiniPlaylist(!miniPlaylist)}
+                      sx={{
+                        position: "absolute",
+                        left: 0,
+                        top: "50%",
+                        transform: "translate(-1px, -50%)",
+                        width: 22,
+                        height: 68,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        borderRadius: "6px 0 0 6px",
+                        background: `linear-gradient(90deg, ${alpha(red, 0.35)}, ${alpha(red, 0.15)})`,
+                        border: `1px solid ${alpha(red, 0.35)}`,
+                        borderRight: "none",
+                        boxShadow: `inset 1px 0 0 ${alpha("#fff", 0.08)}`,
+                        transition: "background 0.2s",
+                        zIndex: 2,
+                        "&:hover": { background: `linear-gradient(90deg, ${alpha(red, 0.5)}, ${alpha(red, 0.22)})` },
+                      }}
+                      title={miniPlaylist ? "Retract playlist" : "Expand playlist"}
+                    >
+                      <Box
+                        sx={{
+                          color: "#fff",
+                          fontSize: 10,
+                          lineHeight: 1,
+                          transform: miniPlaylist ? "none" : "rotate(180deg)",
+                          transition: "transform 280ms cubic-bezier(0.22, 1, 0.36, 1)",
+                        }}
+                      >
+                        ▶
+                      </Box>
+                    </Box>
 
-                  {/* Scrollable track list */}
-                  <Box sx={{ flex: 1, overflowY: "auto", overflowX: "hidden", "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { bgcolor: alpha(red, 0.3), borderRadius: 2 } }}>
-                    {playlist.map((track, i) => {
-                      const isCurrent = i === currentIndex;
-                      const isPast = i < currentIndex;
-                      return (
-                        <Box
-                          key={`mini-${track.id}-${i}`}
-                          onClick={() => skipToTrack(i)}
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 0.5,
-                            px: 0.75,
-                            py: 0.4,
-                            cursor: "pointer",
-                            borderBottom: `1px solid ${alpha("#fff", 0.03)}`,
-                            opacity: isPast ? 0.35 : 1,
-                            background: isCurrent
-                              ? `linear-gradient(90deg, ${alpha(red, 0.25)}, transparent)`
-                              : "transparent",
-                            borderLeft: isCurrent ? `2px solid ${redLight}` : "2px solid transparent",
-                            transition: "all 0.12s",
-                            "&:hover": { bgcolor: alpha("#fff", 0.04) },
-                          }}
-                        >
-                          <Typography sx={{ fontSize: 8, color: isCurrent ? redLight : "text.disabled", fontFamily: "monospace", width: 14, textAlign: "right", flexShrink: 0 }}>
-                            {isCurrent && isPlaying ? "~" : i + 1}
-                          </Typography>
-                          <Stack sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography sx={{ fontSize: 9, fontWeight: 600, color: isCurrent ? "#fff" : "text.secondary", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {track.title}
-                            </Typography>
-                            <Typography sx={{ fontSize: 7, color: "text.disabled", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {track.artist}
-                            </Typography>
-                          </Stack>
-                          {track.audioUrl && (
-                            <Box sx={{ width: 4, height: 4, borderRadius: "50%", bgcolor: "#ef4444", boxShadow: "0 0 4px rgba(239,68,68,0.7)", flexShrink: 0 }} />
-                          )}
+                    {/* Header */}
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      sx={{
+                        pl: 3.5,
+                        pr: 1,
+                        py: 0.75,
+                        flexShrink: 0,
+                        borderBottom: `1px solid ${alpha("#fff", 0.05)}`,
+                        background: `linear-gradient(90deg, ${alpha(red, 0.12)}, transparent 60%)`,
+                      }}
+                    >
+                      <Stack direction="row" alignItems="baseline" spacing={0.75}>
+                        <Typography sx={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: redLight, textTransform: "uppercase" }}>
+                          Queue
+                        </Typography>
+                        <Typography sx={{ fontSize: 9, color: "text.disabled", fontFamily: "monospace" }}>
+                          {currentIndex >= 0 ? currentIndex + 1 : 0}/{playlist.length}
+                        </Typography>
+                      </Stack>
+                      {infinityMode && (
+                        <Typography sx={{ fontSize: 11, color: redLight, lineHeight: 1 }}>∞</Typography>
+                      )}
+                    </Stack>
+
+                    {/* Scrollable track list */}
+                    <Box
+                      sx={{
+                        flex: 1,
+                        overflowY: "auto",
+                        overflowX: "hidden",
+                        "&::-webkit-scrollbar": { width: 4 },
+                        "&::-webkit-scrollbar-track": { background: "transparent" },
+                        "&::-webkit-scrollbar-thumb": {
+                          bgcolor: alpha(red, 0.35),
+                          borderRadius: 2,
+                          "&:hover": { bgcolor: alpha(red, 0.55) },
+                        },
+                      }}
+                    >
+                      {playlist.map((track, i) => {
+                        const isCurrent = i === currentIndex;
+                        const isPast = i < currentIndex;
+                        const isFull = !!track.audioUrl;
+                        const mins = Math.floor((track.duration || 0) / 60);
+                        const secs = Math.floor((track.duration || 0) % 60);
+                        const durStr = track.duration ? `${mins}:${secs.toString().padStart(2, "0")}` : "";
+                        return (
+                          <Box
+                            key={`wing-${track.id}-${i}`}
+                            onClick={() => skipToTrack(i)}
+                            sx={{
+                              position: "relative",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.75,
+                              pl: 1.25,
+                              pr: 1,
+                              py: 0.75,
+                              cursor: "pointer",
+                              borderBottom: `1px solid ${alpha("#fff", 0.03)}`,
+                              opacity: isPast ? 0.4 : 1,
+                              background: isCurrent
+                                ? `linear-gradient(90deg, ${alpha(red, 0.3)}, ${alpha(red, 0.04)} 75%, transparent)`
+                                : "transparent",
+                              "&:hover": {
+                                bgcolor: isCurrent ? undefined : alpha("#fff", 0.04),
+                              },
+                              "&::before": isCurrent ? {
+                                content: '""',
+                                position: "absolute",
+                                left: 0,
+                                top: 4,
+                                bottom: 4,
+                                width: 2,
+                                borderRadius: 1,
+                                bgcolor: redLight,
+                                boxShadow: `0 0 6px ${redLight}`,
+                              } : undefined,
+                              transition: "background 0.15s",
+                            }}
+                          >
+                            {/* Track number or playing indicator */}
+                            <Box sx={{ width: 14, flexShrink: 0, display: "flex", justifyContent: "center" }}>
+                              {isCurrent && isPlaying ? (
+                                <Box sx={{
+                                  display: "flex",
+                                  alignItems: "flex-end",
+                                  gap: "1.5px",
+                                  height: 10,
+                                }}>
+                                  {[0, 1, 2].map((b) => (
+                                    <Box key={b} sx={{
+                                      width: 2,
+                                      bgcolor: redLight,
+                                      borderRadius: 0.5,
+                                      animation: `wing-bars-${b} 0.9s ease-in-out ${b * 0.12}s infinite`,
+                                      [`@keyframes wing-bars-${b}`]: {
+                                        "0%,100%": { height: "30%" },
+                                        "50%": { height: "100%" },
+                                      },
+                                    }} />
+                                  ))}
+                                </Box>
+                              ) : (
+                                <Typography sx={{
+                                  fontSize: 9,
+                                  color: "text.disabled",
+                                  fontFamily: "monospace",
+                                  lineHeight: 1,
+                                }}>
+                                  {i + 1}
+                                </Typography>
+                              )}
+                            </Box>
+
+                            {/* Title + artist */}
+                            <Stack sx={{ flex: 1, minWidth: 0, gap: 0.1 }}>
+                              <Typography sx={{
+                                fontSize: 11,
+                                fontWeight: isCurrent ? 700 : 500,
+                                color: isCurrent ? "#fff" : alpha("#fff", 0.78),
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                lineHeight: 1.15,
+                              }}>
+                                {track.title}
+                              </Typography>
+                              <Typography sx={{
+                                fontSize: 9,
+                                color: alpha("#fff", 0.42),
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                lineHeight: 1.1,
+                              }}>
+                                {track.artist}
+                              </Typography>
+                              {/* Details row */}
+                              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.25 }}>
+                                {track.bpm > 0 && (
+                                  <Box sx={{
+                                    px: 0.4,
+                                    borderRadius: 0.5,
+                                    border: `1px solid ${alpha(redLight, 0.4)}`,
+                                    bgcolor: alpha(red, 0.12),
+                                  }}>
+                                    <Typography sx={{
+                                      fontSize: 8,
+                                      fontFamily: "monospace",
+                                      color: redLight,
+                                      lineHeight: 1.3,
+                                      letterSpacing: 0.5,
+                                    }}>
+                                      {Math.round(track.bpm)} BPM
+                                    </Typography>
+                                  </Box>
+                                )}
+                                {durStr && (
+                                  <Typography sx={{
+                                    fontSize: 8,
+                                    fontFamily: "monospace",
+                                    color: alpha("#fff", 0.35),
+                                    lineHeight: 1.3,
+                                  }}>
+                                    {durStr}
+                                  </Typography>
+                                )}
+                              </Stack>
+                            </Stack>
+
+                            {/* FULL indicator */}
+                            <Box
+                              sx={{
+                                flexShrink: 0,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 0.3,
+                                px: 0.5,
+                                py: 0.2,
+                                borderRadius: 0.75,
+                                bgcolor: isFull ? alpha(red, 0.18) : "transparent",
+                                border: `1px solid ${isFull ? alpha(redLight, 0.45) : alpha("#fff", 0.06)}`,
+                                opacity: isFull ? 1 : 0.4,
+                                transition: "all 0.2s",
+                              }}
+                              title={isFull ? "Full track ready" : "Preview only"}
+                            >
+                              <Box sx={{
+                                width: 5,
+                                height: 5,
+                                borderRadius: "50%",
+                                bgcolor: isFull ? redLight : alpha("#fff", 0.15),
+                                boxShadow: isFull ? `0 0 4px ${redLight}` : undefined,
+                              }} />
+                              <Typography sx={{
+                                fontSize: 7,
+                                fontWeight: 800,
+                                letterSpacing: 0.8,
+                                color: isFull ? "#fff" : alpha("#fff", 0.3),
+                                lineHeight: 1,
+                              }}>
+                                FULL
+                              </Typography>
+                            </Box>
+                          </Box>
+                        );
+                      })}
+                      {loadingMore && (
+                        <Box sx={{
+                          p: 1,
+                          textAlign: "center",
+                          fontSize: 9,
+                          color: alpha(redLight, 0.7),
+                          animation: "wing-pulse 1.2s ease-in-out infinite",
+                          "@keyframes wing-pulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.4 } },
+                        }}>
+                          loading more…
                         </Box>
-                      );
-                    })}
+                      )}
+                    </Box>
                   </Box>
                 </Box>
               )}
             </Box>
           )}
 
-          {playlist.length > 0 && !(miniPlaylist && isDesktop) && (
+          {playlist.length > 0 && !isDesktop && (
             <Stack spacing={1.5}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5 }}>
                 <Typography variant="body2" sx={{ color: "text.secondary" }}>
