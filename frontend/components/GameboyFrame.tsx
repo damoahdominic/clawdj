@@ -173,20 +173,12 @@ export function GameboyFrame({
 
   return (
     <Box sx={{ ...casing, p: { xs: 1.5, sm: 2 }, position: "relative" }}>
-      {/* ── Top half: speakers flanking the LCD ─────────────────────── */}
-      <Stack
-        direction="row"
-        alignItems="center"
-        sx={{
-          gap: { xs: 1, sm: 2 },
-          mb: { xs: 1.25, sm: 1.75 },
-        }}
-      >
-        <Speaker side="L" isPlaying={isPlaying} bpm={bpm} />
-        <Box
+      {/* ── Top half: full-width LCD bezel ──────────────────────────── */}
+      {(() => { void lcdWidthFrac; return null; })()}
+      <Box
           sx={{
-            width: `${lcdWidthFrac * 100}%`,
-            flexShrink: 0,
+            width: "100%",
+            mb: { xs: 1.25, sm: 1.75 },
             p: { xs: 1, sm: 1.5 },
           borderRadius: 2.25,
           background: `
@@ -308,9 +300,7 @@ export function GameboyFrame({
         }}>
           Claw Dot Matrix With Stereo Sound
         </Typography>
-        </Box>
-        <Speaker side="R" isPlaying={isPlaying} bpm={bpm} />
-      </Stack>
+      </Box>
 
       {/* ── Hinge spine ──────────────────────────────────────────────── */}
       <Box sx={{
