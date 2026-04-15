@@ -629,6 +629,56 @@ export function DeckLayout({
   // pill at the bottom centre of the SFX rack.
   const [hoveredEffect, setHoveredEffect] = useState<string | null>(null);
 
+  // Label of the most recently triggered effect — briefly overrides the
+  // hover label so users always see what just fired, even when they didn't
+  // click the pad themselves (e.g. random auto-effect between tracks).
+  const [firedEffectLabel, setFiredEffectLabel] = useState<string | null>(null);
+
+  // Rack scroll container + per-pad refs so we can scroll a triggered pad
+  // into view when it's off-screen on the horizontal strip.
+  const rackScrollRef = useRef<HTMLDivElement | null>(null);
+  const padRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const prevPlayingRef = useRef<Set<string>>(new Set());
+
+  // Whenever a new effect enters the playing set, scroll its pad into view
+  // and surface its label at the bottom pill. Useful for the auto-trigger
+  // path where the user didn't click anything.
+  useEffect(() => {
+    if (!playingEffects || !effects) return;
+    const prev = prevPlayingRef.current;
+    const newlyPlaying: string[] = [];
+    playingEffects.forEach((n) => { if (!prev.has(n)) newlyPlaying.push(n); });
+    prevPlayingRef.current = new Set(playingEffects);
+    if (newlyPlaying.length === 0) return;
+
+    const name = newlyPlaying[newlyPlaying.length - 1];
+    const def = effects.find((e) => e.name === name);
+    if (!def) return;
+
+    const pad = padRefs.current.get(name);
+    const scroller = rackScrollRef.current;
+    if (pad && scroller) {
+      const padRect = pad.getBoundingClientRect();
+      const scRect = scroller.getBoundingClientRect();
+      const padCenter = padRect.left + padRect.width / 2;
+      const scCenter = scRect.left + scRect.width / 2;
+      const delta = padCenter - scCenter;
+      // Only scroll if the pad is outside the middle half — avoids snapping
+      // on every click of a pad that's already comfortably visible.
+      if (Math.abs(delta) > scRect.width * 0.25) {
+        scroller.scrollTo({ left: scroller.scrollLeft + delta, behavior: "smooth" });
+      }
+    }
+    setFiredEffectLabel(def.label);
+  }, [playingEffects, effects]);
+
+  // Fade the fired label after a short hold.
+  useEffect(() => {
+    if (!firedEffectLabel) return;
+    const t = setTimeout(() => setFiredEffectLabel(null), 1400);
+    return () => clearTimeout(t);
+  }, [firedEffectLabel]);
+
   // Mutable mirrors of tempo/pitch so the SYNC effect on one deck can read
   // the other's current values without triggering re-renders on both.
   const ctrlARef = useRef<{ tempo: number; pitch: number } | null>(null);
@@ -853,11 +903,13 @@ export function DeckLayout({
   const effectsGrid = effects.length > 0 && onTriggerEffect ? (
     <Box sx={{ mt: 1.5 }}>
       <Box
+        ref={rackScrollRef}
         onMouseLeave={() => setHoveredEffect(null)}
         sx={{
           position: "relative",
           overflowX: "auto",
           overflowY: "hidden",
+          scrollBehavior: "smooth",
           p: 1.25,
           pb: 3.75,
           borderRadius: "4px",
@@ -896,6 +948,10 @@ export function DeckLayout({
             return (
               <Box
                 key={eff.name}
+                ref={(el: HTMLDivElement | null) => {
+                  if (el) padRefs.current.set(eff.name, el);
+                  else padRefs.current.delete(eff.name);
+                }}
                 role="button"
                 onMouseEnter={() => setHoveredEffect(eff.label)}
                 onFocus={() => setHoveredEffect(eff.label)}
@@ -1010,14 +1066,14 @@ export function DeckLayout({
           })}
         </Box>
 
-        {/* Fixed hover label — bottom centre of the rack */}
+        {/* Fixed hover / fired label — bottom centre of the rack */}
         <Box
           sx={{
             position: "absolute",
             bottom: 6,
             left: "50%",
-            transform: `translateX(-50%) translateY(${hoveredEffect ? 0 : 4}px)`,
-            opacity: hoveredEffect ? 1 : 0,
+            transform: `translateX(-50%) translateY(${(hoveredEffect || firedEffectLabel) ? 0 : 4}px)`,
+            opacity: (hoveredEffect || firedEffectLabel) ? 1 : 0,
             pointerEvents: "none",
             px: 1.25,
             py: 0.35,
@@ -1043,7 +1099,7 @@ export function DeckLayout({
             textTransform: "uppercase",
             lineHeight: 1,
           }}>
-            {hoveredEffect ?? "\u00A0"}
+            {hoveredEffect ?? firedEffectLabel ?? "\u00A0"}
           </Typography>
         </Box>
       </Box>
