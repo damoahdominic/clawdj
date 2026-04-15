@@ -24,6 +24,8 @@ import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import { GameboyFrame } from "../../components/GameboyFrame";
 import { LoadingSequence } from "../../components/LoadingSequence";
+import { LeftWing } from "../../components/LeftWing";
+import type { AudioEngineApi } from "../../hooks/useAudioEngine";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -1024,6 +1026,7 @@ export default function Radio() {
     crossfaderValue={crossfaderValue} handleCrossfaderChange={handleCrossfaderChange}
     currentBpm={currentBpm}
     miniPlaylist={miniPlaylist} setMiniPlaylist={setMiniPlaylist} isDesktop={isDesktop}
+    activeDeck={activeDeck}
   />;
 }
 
@@ -1062,12 +1065,19 @@ interface RadioViewProps {
   currentBpm: number;
   miniPlaylist: boolean; setMiniPlaylist: (v: boolean) => void;
   isDesktop: boolean;
+  activeDeck: "a" | "b";
 }
 
 function RadioView(props: RadioViewProps) {
   const theme = useTheme();
   const red = theme.palette.primary.main;
   const redLight = theme.palette.primary.light;
+
+  // Engine refs exposed at this level so both DeckLayout and LeftWing can
+  // share access (meters, cue readouts, etc.)
+  const engineARef = useRef<AudioEngineApi | null>(null);
+  const engineBRef = useRef<AudioEngineApi | null>(null);
+  const [leftWingOpen, setLeftWingOpen] = useState(true);
 
   // Typewriter placeholder — cycles through example prompts so the search
   // box always hints at what kinds of queries work.
@@ -1578,8 +1588,25 @@ function RadioView(props: RadioViewProps) {
                 effects={EFFECTS}
                 playingEffects={playingEffects}
                 onTriggerEffect={playEffect}
+                externalEngineARef={engineARef}
+                externalEngineBRef={engineBRef}
               />
               </GameboyFrame>
+
+              {/* Left panel — History · Cues · FX */}
+              {isDesktop && playlist.length > 0 && (
+                <LeftWing
+                  open={leftWingOpen}
+                  onToggle={() => setLeftWingOpen(!leftWingOpen)}
+                  playlist={playlist}
+                  currentIndex={currentIndex}
+                  engineARef={engineARef}
+                  engineBRef={engineBRef}
+                  activeDeck={props.activeDeck}
+                  deckATrack={deckATrack}
+                  deckBTrack={deckBTrack}
+                />
+              )}
 
               {/* Retractable playlist wing — docks to the right edge of the deck
                    layout and slides outward so it doesn't overlap turntable B.

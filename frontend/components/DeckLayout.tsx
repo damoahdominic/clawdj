@@ -63,6 +63,11 @@ interface DeckLayoutProps {
   effects?: EffectDef[];
   playingEffects?: Set<string>;
   onTriggerEffect?: (name: string) => void;
+  /** Optional external refs written by the Turntables on mount. When provided,
+   *  used instead of DeckLayout's own internal refs — useful when a sibling
+   *  component (e.g. the left wing) needs live engine access. */
+  externalEngineARef?: React.MutableRefObject<AudioEngineApi | null>;
+  externalEngineBRef?: React.MutableRefObject<AudioEngineApi | null>;
 }
 
 type AccentTone = "red" | "redDark";
@@ -617,14 +622,19 @@ export function DeckLayout({
   effects = [],
   playingEffects,
   onTriggerEffect,
+  externalEngineARef,
+  externalEngineBRef,
 }: DeckLayoutProps) {
   const theme = useTheme();
   const red = theme.palette.primary.main;
   const redLight = theme.palette.primary.light;
 
-  // Engine refs — written by each Turntable on mount
-  const engineARef = useRef<AudioEngineApi | null>(null);
-  const engineBRef = useRef<AudioEngineApi | null>(null);
+  // Engine refs — written by each Turntable on mount. Prefer caller-provided
+  // refs when available so siblings (left wing) can read engine state.
+  const internalEngineARef = useRef<AudioEngineApi | null>(null);
+  const internalEngineBRef = useRef<AudioEngineApi | null>(null);
+  const engineARef = externalEngineARef ?? internalEngineARef;
+  const engineBRef = externalEngineBRef ?? internalEngineBRef;
 
   // Label of the effect the pointer is currently over, surfaced in a fixed
   // pill at the bottom centre of the SFX rack.
