@@ -1484,6 +1484,7 @@ function RadioView(props: RadioViewProps) {
             <Box sx={{ position: "relative", overflow: "visible" }}>
               <GameboyFrame
                 isPlaying={isPlaying}
+                bpm={currentBpm}
                 lcdContent={<LobsterBackground contained isPlaying={isPlaying} bpm={currentBpm} />}
               >
               <DeckLayout

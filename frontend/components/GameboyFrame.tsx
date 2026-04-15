@@ -11,16 +11,146 @@ interface GameboyFrameProps {
   children: ReactNode;
   /** Drives the LCD power LED pulse. */
   isPlaying?: boolean;
+  /** Current track BPM — drives the flanking speaker cone pulse. */
+  bpm?: number;
   /** LCD aspect ratio; defaults to 3:2 (GBA-ish). */
   lcdAspectRatio?: number;
   /** Fraction of the frame width the LCD should occupy (0–1). */
   lcdWidthFrac?: number;
 }
 
+/** Circular speaker that pulses in time with the beat. */
+function Speaker({
+  side,
+  isPlaying,
+  bpm,
+}: {
+  side: "L" | "R";
+  isPlaying: boolean;
+  bpm: number;
+}) {
+  // Beat duration in seconds; pulse once per beat.
+  const beat = bpm > 0 ? 60 / bpm : 0.6;
+  const kf = `speaker-pulse-${side}`;
+  return (
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative",
+        minWidth: 80,
+      }}
+    >
+      {/* Outer mounting plate with 4 screw dots */}
+      <Box sx={{
+        position: "relative",
+        width: "min(140px, 80%)",
+        aspectRatio: "1 / 1",
+        borderRadius: "50%",
+        background: `radial-gradient(circle at 30% 28%, #2a2b2e 0%, #141518 70%, #0a0b0d 100%)`,
+        border: `1px solid ${alpha("#000", 0.8)}`,
+        boxShadow: [
+          `inset 0 2px 4px ${alpha("#fff", 0.06)}`,
+          `inset 0 -2px 4px ${alpha("#000", 0.7)}`,
+          `0 3px 6px ${alpha("#000", 0.6)}`,
+        ].join(", "),
+      }}>
+        {/* Screw dots at the corners of a bounding square */}
+        {[
+          { top: "10%", left: "10%" },
+          { top: "10%", right: "10%" },
+          { bottom: "10%", left: "10%" },
+          { bottom: "10%", right: "10%" },
+        ].map((pos, i) => (
+          <Box key={i} sx={{
+            position: "absolute", ...pos,
+            width: 5, height: 5, borderRadius: "50%",
+            background: `radial-gradient(circle at 30% 30%, #555, #0d0d0e)`,
+            boxShadow: `inset 0 0.5px 0 ${alpha("#fff", 0.2)}, 0 0.5px 1px ${alpha("#000", 0.6)}`,
+          }} />
+        ))}
+
+        {/* Surround ring — the rubbery speaker gasket */}
+        <Box sx={{
+          position: "absolute", inset: "14%",
+          borderRadius: "50%",
+          background: `radial-gradient(circle at 30% 28%, #1a1b1e 0%, #0a0b0d 80%)`,
+          boxShadow: [
+            `inset 0 0 0 1px ${alpha("#000", 0.9)}`,
+            `inset 0 3px 6px ${alpha("#000", 0.85)}`,
+          ].join(", "),
+        }}>
+          {/* Cone — this is the part that pulses */}
+          <Box sx={{
+            position: "absolute", inset: "10%",
+            borderRadius: "50%",
+            background: `radial-gradient(circle at 35% 30%, #3a3b3e, #141518 55%, #060608)`,
+            boxShadow: [
+              `inset 0 0 0 1px ${alpha("#000", 0.9)}`,
+              `inset 0 2px 3px ${alpha("#fff", 0.04)}`,
+            ].join(", "),
+            transformOrigin: "center",
+            animation: isPlaying ? `${kf} ${beat}s cubic-bezier(0.25, 0.46, 0.45, 0.94) infinite` : "none",
+            [`@keyframes ${kf}`]: {
+              "0%": { transform: "scale(1)", filter: "brightness(1)" },
+              "25%": { transform: "scale(1.06)", filter: "brightness(1.18)" },
+              "55%": { transform: "scale(0.98)", filter: "brightness(0.95)" },
+              "100%": { transform: "scale(1)", filter: "brightness(1)" },
+            },
+          }}>
+            {/* Dust cap — central dome */}
+            <Box sx={{
+              position: "absolute",
+              top: "50%", left: "50%",
+              width: "38%", height: "38%",
+              transform: "translate(-50%, -50%)",
+              borderRadius: "50%",
+              background: `radial-gradient(circle at 30% 28%, #4a4b4f 0%, #1a1b1e 60%, #050506 100%)`,
+              boxShadow: [
+                `inset 0 2px 2px ${alpha("#fff", 0.12)}`,
+                `inset 0 -2px 3px ${alpha("#000", 0.7)}`,
+                `0 2px 3px ${alpha("#000", 0.5)}`,
+              ].join(", "),
+            }} />
+            {/* Woofer grille holes — subtle dotted pattern */}
+            <Box sx={{
+              position: "absolute", inset: 0,
+              borderRadius: "50%",
+              backgroundImage: `radial-gradient(circle at center, ${alpha("#000", 0.35)} 0.5px, transparent 1px)`,
+              backgroundSize: "6px 6px",
+              opacity: 0.5,
+              pointerEvents: "none",
+            }} />
+          </Box>
+
+          {/* Beat glow halo — expands out when playing */}
+          <Box sx={{
+            position: "absolute", inset: 0,
+            borderRadius: "50%",
+            pointerEvents: "none",
+            boxShadow: isPlaying
+              ? `0 0 0 2px ${alpha("#ef4444", 0.0)}, 0 0 18px ${alpha("#ef4444", 0.25)}`
+              : "none",
+            animation: isPlaying ? `speaker-halo-${side} ${beat}s ease-out infinite` : "none",
+            [`@keyframes speaker-halo-${side}`]: {
+              "0%": { boxShadow: `0 0 0 0 ${alpha("#ef4444", 0.35)}, 0 0 12px ${alpha("#ef4444", 0.2)}` },
+              "70%": { boxShadow: `0 0 0 10px ${alpha("#ef4444", 0)}, 0 0 18px ${alpha("#ef4444", 0.15)}` },
+              "100%": { boxShadow: `0 0 0 0 ${alpha("#ef4444", 0)}, 0 0 12px ${alpha("#ef4444", 0.2)}` },
+            },
+          }} />
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 export function GameboyFrame({
   lcdContent,
   children,
   isPlaying = false,
+  bpm = 120,
   lcdAspectRatio = 3 / 2,
   lcdWidthFrac = 0.5,
 }: GameboyFrameProps) {
@@ -43,13 +173,21 @@ export function GameboyFrame({
 
   return (
     <Box sx={{ ...casing, p: { xs: 1.5, sm: 2 }, position: "relative" }}>
-      {/* ── Top half: LCD bezel ─────────────────────────────────────── */}
-      <Box
+      {/* ── Top half: speakers flanking the LCD ─────────────────────── */}
+      <Stack
+        direction="row"
+        alignItems="center"
         sx={{
-          width: `${lcdWidthFrac * 100}%`,
-          mx: "auto",
+          gap: { xs: 1, sm: 2 },
           mb: { xs: 1.25, sm: 1.75 },
-          p: { xs: 1, sm: 1.5 },
+        }}
+      >
+        <Speaker side="L" isPlaying={isPlaying} bpm={bpm} />
+        <Box
+          sx={{
+            width: `${lcdWidthFrac * 100}%`,
+            flexShrink: 0,
+            p: { xs: 1, sm: 1.5 },
           borderRadius: 2.25,
           background: `
             linear-gradient(180deg, #1a1b1e 0%, #0d0e11 100%)
@@ -170,7 +308,9 @@ export function GameboyFrame({
         }}>
           Claw Dot Matrix With Stereo Sound
         </Typography>
-      </Box>
+        </Box>
+        <Speaker side="R" isPlaying={isPlaying} bpm={bpm} />
+      </Stack>
 
       {/* ── Hinge spine ──────────────────────────────────────────────── */}
       <Box sx={{
