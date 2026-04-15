@@ -948,6 +948,40 @@ function RadioView(props: RadioViewProps) {
   const theme = useTheme();
   const red = theme.palette.primary.main;
   const redLight = theme.palette.primary.light;
+
+  // Typewriter placeholder — cycles through example prompts so the search
+  // box always hints at what kinds of queries work.
+  const [typedPlaceholder, setTypedPlaceholder] = useState("");
+  useEffect(() => {
+    const examples = [
+      "Daft Punk — Harder Better Faster",
+      "Kendrick Lamar",
+      "90s boom bap",
+      "lo-fi chillhop study",
+      "afrobeats summer 2025",
+      "Tame Impala",
+      "disco house",
+      "Fela Kuti",
+    ];
+    let i = 0, ch = 0, deleting = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      const full = examples[i];
+      if (!deleting) {
+        ch++;
+        setTypedPlaceholder(full.slice(0, ch));
+        if (ch >= full.length) { deleting = true; timer = setTimeout(step, 1600); return; }
+        timer = setTimeout(step, 55 + Math.random() * 40);
+      } else {
+        ch--;
+        setTypedPlaceholder(full.slice(0, ch));
+        if (ch <= 0) { deleting = false; i = (i + 1) % examples.length; timer = setTimeout(step, 320); return; }
+        timer = setTimeout(step, 28);
+      }
+    };
+    timer = setTimeout(step, 400);
+    return () => clearTimeout(timer);
+  }, []);
   const {
     vibeQuery, setVibeQuery, detected, loading, loadPlaylist,
     playlist, currentIndex, isPlaying, progress, switchPoint, isCrossfading,
@@ -1207,7 +1241,7 @@ function RadioView(props: RadioViewProps) {
               value={vibeQuery}
               onChange={(e) => setVibeQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
-              placeholder="Artist, song, or vibe..."
+              placeholder={`Try: ${typedPlaceholder}\u258F`}
               variant="outlined"
               InputProps={{
                 endAdornment: (
@@ -1216,7 +1250,7 @@ function RadioView(props: RadioViewProps) {
                     disabled={loading || !vibeQuery.trim()}
                     size="small"
                     sx={{
-                      width: 36, height: 36,
+                      width: 40, height: 40,
                       borderRadius: 2,
                       background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                       color: "#fff",
@@ -1234,10 +1268,21 @@ function RadioView(props: RadioViewProps) {
                   bgcolor: alpha("#000", 0.55),
                   backdropFilter: "blur(6px)",
                   borderRadius: 3,
+                  pl: 1,
                   pr: 1.5,
                   "& fieldset": { borderColor: alpha(red, 0.3) },
                   "&:hover fieldset": { borderColor: alpha(red, 0.5) },
                   "&.Mui-focused fieldset": { borderColor: red },
+                },
+                "& .MuiOutlinedInput-input": {
+                  py: 2.2,
+                  px: 1.5,
+                  fontSize: 16,
+                  "&::placeholder": {
+                    color: alpha("#fff", 0.45),
+                    opacity: 1,
+                    fontStyle: "italic",
+                  },
                 },
               }}
             />
@@ -1324,7 +1369,7 @@ function RadioView(props: RadioViewProps) {
               value={vibeQuery}
               onChange={(e) => setVibeQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
-              placeholder="Artist, song, or vibe..."
+              placeholder={`Try: ${typedPlaceholder}\u258F`}
               variant="outlined"
               InputProps={{
                 endAdornment: (
@@ -1333,7 +1378,7 @@ function RadioView(props: RadioViewProps) {
                     disabled={loading || !vibeQuery.trim()}
                     size="small"
                     sx={{
-                      width: 34, height: 34,
+                      width: 36, height: 36,
                       borderRadius: 2,
                       background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                       color: "#fff",
@@ -1351,10 +1396,21 @@ function RadioView(props: RadioViewProps) {
                   bgcolor: alpha("#000", 0.55),
                   backdropFilter: "blur(6px)",
                   borderRadius: 3,
+                  pl: 1,
                   pr: 1.5,
                   "& fieldset": { borderColor: alpha(red, 0.3) },
                   "&:hover fieldset": { borderColor: alpha(red, 0.5) },
                   "&.Mui-focused fieldset": { borderColor: red },
+                },
+                "& .MuiOutlinedInput-input": {
+                  py: 1.75,
+                  px: 1.25,
+                  fontSize: 15,
+                  "&::placeholder": {
+                    color: alpha("#fff", 0.45),
+                    opacity: 1,
+                    fontStyle: "italic",
+                  },
                 },
               }}
             />
