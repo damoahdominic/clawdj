@@ -933,7 +933,50 @@ export function DeckLayout({
   const rainbowColors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#f43f5e"];
   const innerSize = Math.round(effectsPadSize * 0.47);
   const effectsGrid = effects.length > 0 && onTriggerEffect ? (
-    <Box sx={{ mt: 1.5 }}>
+    <Box sx={{ mt: 1.5, position: "relative" }}>
+      {/* Header label — "SFX PAD" with engraved plate feel */}
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{
+          px: 1.25,
+          pb: 0.5,
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={0.75}>
+          <Box sx={{
+            width: 6, height: 6, borderRadius: "50%",
+            bgcolor: redLight,
+            boxShadow: `0 0 6px ${redLight}, inset 0 -1px 1px ${alpha("#000", 0.6)}`,
+            animation: "sfx-header-pulse 2s ease-in-out infinite",
+            "@keyframes sfx-header-pulse": {
+              "0%,100%": { opacity: 1 },
+              "50%": { opacity: 0.5 },
+            },
+          }} />
+          <Typography sx={{
+            fontFamily: "monospace",
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: 3,
+            color: alpha(redLight, 0.85),
+            textTransform: "uppercase",
+            textShadow: `0 0 8px ${alpha(redLight, 0.4)}`,
+          }}>
+            SFX Pad
+          </Typography>
+        </Stack>
+        <Typography sx={{
+          fontFamily: "monospace",
+          fontSize: 9,
+          color: alpha("#fff", 0.25),
+          letterSpacing: 1.5,
+        }}>
+          {effects.length} fx
+        </Typography>
+      </Stack>
+
       <Box
         ref={rackScrollRef}
         onMouseLeave={() => setHoveredEffect(null)}
@@ -943,7 +986,6 @@ export function DeckLayout({
           overflowY: "hidden",
           scrollBehavior: "smooth",
           p: 1.25,
-          pb: 3.75,
           borderRadius: "4px",
           background: [
             `repeating-linear-gradient(90deg, ${alpha("#fff", 0.015)} 0px, transparent 1px, transparent 3px)`,
@@ -1098,38 +1140,67 @@ export function DeckLayout({
           })}
         </Box>
 
-        {/* Fixed hover / fired label — bottom centre of the rack */}
+      </Box>
+
+      {/* Fixed hover / fired label — sits BENEATH the rack, outside the
+           horizontal scroll container, so it stays pinned to centre no
+           matter how far the pad strip is scrolled. */}
+      <Box
+        sx={{
+          position: "relative",
+          height: 26,
+          mt: 0.75,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          pointerEvents: "none",
+        }}
+      >
         <Box
           sx={{
-            position: "absolute",
-            bottom: 6,
-            left: "50%",
-            transform: `translateX(-50%) translateY(${(hoveredEffect || firedEffectLabel) ? 0 : 4}px)`,
+            transform: `translateY(${(hoveredEffect || firedEffectLabel) ? 0 : 4}px)`,
             opacity: (hoveredEffect || firedEffectLabel) ? 1 : 0,
-            pointerEvents: "none",
-            px: 1.25,
-            py: 0.35,
+            transition: "opacity 0.18s ease, transform 0.18s ease",
+            px: 1.75,
+            py: 0.6,
             borderRadius: 999,
-            bgcolor: alpha("#0a0a0a", 0.92),
-            border: `1px solid ${alpha(red, 0.45)}`,
-            boxShadow: `0 2px 8px ${alpha("#000", 0.6)}, 0 0 10px ${alpha(red, 0.25)}`,
+            background: `linear-gradient(180deg, ${alpha("#141414", 0.95)}, ${alpha("#050505", 0.95)})`,
+            border: `1px solid ${alpha(red, 0.55)}`,
+            boxShadow: [
+              `0 4px 14px ${alpha("#000", 0.7)}`,
+              `0 0 18px ${alpha(red, 0.35)}`,
+              `inset 0 1px 0 ${alpha("#fff", 0.08)}`,
+            ].join(", "),
             backdropFilter: "blur(6px)",
             WebkitBackdropFilter: "blur(6px)",
-            transition: "opacity 0.12s ease, transform 0.12s ease",
-            zIndex: 3,
+            display: "flex",
+            alignItems: "center",
+            gap: 0.75,
             whiteSpace: "nowrap",
-            maxWidth: "90%",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
           }}
         >
+          {/* Indicator dot — firing vs hovering */}
+          <Box sx={{
+            width: 6, height: 6, borderRadius: "50%",
+            bgcolor: firedEffectLabel ? redLight : alpha(redLight, 0.55),
+            boxShadow: firedEffectLabel
+              ? `0 0 6px ${redLight}, 0 0 12px ${alpha(redLight, 0.6)}`
+              : `0 0 4px ${alpha(redLight, 0.45)}`,
+            animation: firedEffectLabel ? "sfx-fired-blink 0.5s ease-in-out infinite" : "none",
+            "@keyframes sfx-fired-blink": {
+              "0%,100%": { opacity: 1 },
+              "50%": { opacity: 0.3 },
+            },
+          }} />
           <Typography sx={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: 1.2,
+            fontFamily: "monospace",
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: 1.6,
             color: "#fff",
             textTransform: "uppercase",
             lineHeight: 1,
+            textShadow: `0 0 8px ${alpha(redLight, 0.55)}`,
           }}>
             {hoveredEffect ?? firedEffectLabel ?? "\u00A0"}
           </Typography>
