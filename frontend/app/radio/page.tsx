@@ -22,6 +22,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
+import { GameboyFrame } from "../../components/GameboyFrame";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -108,8 +109,18 @@ interface PlaylistTrack {
   audioUrl?: string | null;
 }
 
-// ============ FULL-SCREEN 3D LOBSTER BACKGROUND ============
-function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number }) {
+// ============ 3D LOBSTER SCENE (fullscreen OR contained) ============
+function LobsterBackground({
+  isPlaying,
+  bpm,
+  contained = false,
+}: {
+  isPlaying: boolean;
+  bpm: number;
+  /** When true, the scene sizes to its container (for embedding in an LCD
+   *  display) instead of taking over the full window. */
+  contained?: boolean;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number>(0);
   const timeRef = useRef(0);
@@ -130,8 +141,16 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
       if (cancelled) return;
 
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+      const getSize = () => {
+        if (contained) {
+          const r = container.getBoundingClientRect();
+          return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+        }
+        return { w: window.innerWidth, h: window.innerHeight };
+      };
+      const sz0 = getSize();
+      const w = sz0.w;
+      const h = sz0.h;
 
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x080810);
@@ -269,13 +288,18 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       if (cancelled) return;
 
       const onResize = () => {
-        const nw = window.innerWidth;
-        const nh = window.innerHeight;
+        const { w: nw, h: nh } = getSize();
         camera.aspect = nw / nh;
         camera.updateProjectionMatrix();
         renderer.setSize(nw, nh);
       };
-      window.addEventListener("resize", onResize);
+      let ro: ResizeObserver | null = null;
+      if (contained) {
+        ro = new ResizeObserver(onResize);
+        ro.observe(container);
+      } else {
+        window.addEventListener("resize", onResize);
+      }
 
       const laserColors = [0xff0022, 0xe53935, 0xab000d, 0xff6666, 0x880000, 0xff0066];
       const lasers: THREE.Mesh[] = [];
@@ -381,9 +405,15 @@ function LobsterBackground({ isPlaying, bpm }: { isPlaying: boolean; bpm: number
       const canvas = container.querySelector("canvas");
       if (canvas) container.removeChild(canvas);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
+  return contained ? (
+    <div
+      ref={containerRef}
+      style={{ position: "absolute", inset: 0, touchAction: "none", overflow: "hidden" }}
+    />
+  ) : (
     <div
       ref={containerRef}
       className="fixed inset-0 w-full h-full"
@@ -1381,124 +1411,129 @@ function RadioView(props: RadioViewProps) {
           "@keyframes fadeSlideIn": { "0%": { opacity: 0, transform: "translateY(20px)" }, "100%": { opacity: 1, transform: "translateY(0)" } },
         }}
       >
-        <Stack spacing={{ xs: 2, sm: 3 }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between">
-            <MuiLink
-              href="/"
-              underline="none"
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 0.5,
-                color: "text.secondary",
-                fontSize: { xs: 12, sm: 14 },
-                "&:hover": { color: "primary.light" },
-              }}
-            >
-              <ArrowBackIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /> Home
-            </MuiLink>
-            <Typography
-              sx={{
-                fontWeight: 800,
-                fontSize: { xs: 20, sm: 34 },
-                background: `linear-gradient(90deg, ${theme.palette.primary.dark}, ${red}, ${redLight})`,
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              ClawDJ Radio
-            </Typography>
-            <IconButton
-              onClick={() => setShowSettings(!showSettings)}
-              title="Settings"
-              size="small"
-              sx={{ color: "text.secondary", "&:hover": { color: "primary.light" } }}
-            >
-              <SettingsIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-            </IconButton>
+        <Stack spacing={{ xs: 1.25, sm: 1.75 }}>
+          {/* Compact single-row header: wordmark left, search + cog right. */}
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <MuiLink
+                href="/"
+                underline="none"
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  color: "text.secondary",
+                  "&:hover": { color: "primary.light" },
+                }}
+              >
+                <ArrowBackIcon sx={{ fontSize: { xs: 16, sm: 18 } }} />
+              </MuiLink>
+              <Typography
+                sx={{
+                  fontWeight: 800,
+                  fontSize: { xs: 14, sm: 16 },
+                  letterSpacing: 1,
+                  background: `linear-gradient(90deg, ${theme.palette.primary.dark}, ${red}, ${redLight})`,
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                ClawDJ
+              </Typography>
+            </Stack>
+
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ flex: 1, justifyContent: "flex-end" }}>
+              <TextField
+                value={vibeQuery}
+                onChange={(e) => setVibeQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
+                placeholder={`Try: ${typedPlaceholder}\u258F`}
+                variant="outlined"
+                size="small"
+                sx={{
+                  width: { xs: 160, sm: 260 },
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: alpha("#000", 0.6),
+                    backdropFilter: "blur(6px)",
+                    borderRadius: 999,
+                    pl: 0.75, pr: 0.5,
+                    "& fieldset": { borderColor: alpha(red, 0.3) },
+                    "&:hover fieldset": { borderColor: alpha(red, 0.5) },
+                    "&.Mui-focused fieldset": { borderColor: red },
+                  },
+                  "& .MuiOutlinedInput-input": {
+                    py: 0.75, px: 1,
+                    fontSize: 12,
+                    "&::placeholder": {
+                      color: alpha("#fff", 0.45),
+                      opacity: 1,
+                      fontStyle: "italic",
+                    },
+                  },
+                }}
+                InputProps={{
+                  endAdornment: (
+                    <IconButton
+                      onClick={() => loadPlaylist()}
+                      disabled={loading || !vibeQuery.trim()}
+                      size="small"
+                      sx={{
+                        width: 26, height: 26,
+                        borderRadius: 999,
+                        background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                        color: "#fff",
+                        "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
+                        "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
+                      }}
+                    >
+                      {loading ? <CircularProgress size={14} thickness={5} sx={{ color: "#fff" }} /> : <SearchIcon sx={{ fontSize: 14 }} />}
+                    </IconButton>
+                  ),
+                }}
+              />
+              <IconButton
+                onClick={() => setShowSettings(!showSettings)}
+                title="Settings"
+                size="small"
+                sx={{ color: "text.secondary", "&:hover": { color: "primary.light" } }}
+              >
+                <SettingsIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />
+              </IconButton>
+            </Stack>
           </Stack>
 
-          <Stack spacing={1}>
-            <TextField
-              fullWidth
-              value={vibeQuery}
-              onChange={(e) => setVibeQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
-              placeholder={`Try: ${typedPlaceholder}\u258F`}
-              variant="outlined"
-              InputProps={{
-                endAdornment: (
-                  <IconButton
-                    onClick={() => loadPlaylist()}
-                    disabled={loading || !vibeQuery.trim()}
-                    size="small"
-                    sx={{
-                      width: 36, height: 36,
-                      borderRadius: 2,
-                      background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                      color: "#fff",
-                      mr: -0.5,
-                      "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
-                      "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
-                    }}
-                  >
-                    {loading ? <CircularProgress size={18} thickness={5} sx={{ color: "#fff" }} /> : <SearchIcon sx={{ fontSize: 18 }} />}
-                  </IconButton>
-                ),
-              }}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  bgcolor: alpha("#000", 0.55),
-                  backdropFilter: "blur(6px)",
-                  borderRadius: 3,
-                  pl: 1,
-                  pr: 1.5,
-                  "& fieldset": { borderColor: alpha(red, 0.3) },
-                  "&:hover fieldset": { borderColor: alpha(red, 0.5) },
-                  "&.Mui-focused fieldset": { borderColor: red },
-                },
-                "& .MuiOutlinedInput-input": {
-                  py: 1.75,
-                  px: 1.25,
-                  fontSize: 15,
-                  "&::placeholder": {
-                    color: alpha("#fff", 0.45),
-                    opacity: 1,
-                    fontStyle: "italic",
-                  },
-                },
-              }}
-            />
-            {detected && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ pl: 0.5 }}>
-                <Box
-                  sx={{
-                    px: 1, py: 0.25, borderRadius: 1,
-                    fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
-                    textTransform: "uppercase",
-                    color: "#fff",
-                    bgcolor: alpha(red, 0.55),
-                    border: `1px solid ${alpha(red, 0.8)}`,
-                  }}
-                >
-                  {detected.type}
-                </Box>
-                {detected.label && (
-                  <Typography variant="caption" sx={{ color: "text.secondary", fontSize: 11 }}>
-                    {detected.label}
-                  </Typography>
-                )}
-                {(detected.bpm_min != null || detected.bpm_max != null) && (
-                  <Typography variant="caption" sx={{ color: "text.disabled", fontFamily: "monospace", fontSize: 10 }}>
-                    · {detected.bpm_min ?? 0}–{detected.bpm_max ?? 200} BPM
-                  </Typography>
-                )}
-              </Stack>
-            )}
-          </Stack>
+          {detected && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ pl: 0.5 }}>
+              <Box
+                sx={{
+                  px: 1, py: 0.25, borderRadius: 1,
+                  fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
+                  textTransform: "uppercase",
+                  color: "#fff",
+                  bgcolor: alpha(red, 0.55),
+                  border: `1px solid ${alpha(red, 0.8)}`,
+                }}
+              >
+                {detected.type}
+              </Box>
+              {detected.label && (
+                <Typography variant="caption" sx={{ color: "text.secondary", fontSize: 11 }}>
+                  {detected.label}
+                </Typography>
+              )}
+              {(detected.bpm_min != null || detected.bpm_max != null) && (
+                <Typography variant="caption" sx={{ color: "text.disabled", fontFamily: "monospace", fontSize: 10 }}>
+                  · {detected.bpm_min ?? 0}–{detected.bpm_max ?? 200} BPM
+                </Typography>
+              )}
+            </Stack>
+          )}
 
           {(deckATrack || deckBTrack || playlist.length > 0) && (
             <Box sx={{ position: "relative", overflow: "visible" }}>
+              <GameboyFrame
+                isPlaying={isPlaying}
+                lcdContent={<LobsterBackground contained isPlaying={isPlaying} bpm={currentBpm} />}
+              >
               <DeckLayout
                 deckA={{
                   track: deckATrack,
@@ -1541,6 +1576,7 @@ function RadioView(props: RadioViewProps) {
                 playingEffects={playingEffects}
                 onTriggerEffect={playEffect}
               />
+              </GameboyFrame>
 
               {/* Retractable playlist wing — docks to the right edge of the deck
                    layout and slides outward so it doesn't overlap turntable B.
