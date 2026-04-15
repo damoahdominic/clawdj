@@ -1266,6 +1266,24 @@ function RadioView(props: RadioViewProps) {
             transition: "all 0.5s cubic-bezier(0.4,0,0.2,1)",
           }}
         >
+          <IconButton
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+            size="small"
+            sx={{
+              position: "fixed",
+              top: { xs: 12, sm: 20 },
+              right: { xs: 12, sm: 20 },
+              zIndex: 30,
+              color: "text.secondary",
+              bgcolor: alpha("#000", 0.4),
+              border: `1px solid ${alpha(red, 0.2)}`,
+              backdropFilter: "blur(6px)",
+              "&:hover": { color: "primary.light", borderColor: alpha(red, 0.5) },
+            }}
+          >
+            <SettingsIcon sx={{ fontSize: { xs: 20, sm: 22 } }} />
+          </IconButton>
           <Typography
             sx={{
               fontWeight: 800,
@@ -1372,14 +1390,6 @@ function RadioView(props: RadioViewProps) {
               />
             ))}
           </Box>
-          <Stack direction="row" spacing={2} sx={{ mt: 6, opacity: 0.3 }}>
-            <MuiLink href="/" underline="none" sx={{ color: "text.disabled", fontSize: 12, "&:hover": { color: "primary.light" } }}>
-              <ArrowBackIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: "middle" }} />Home
-            </MuiLink>
-            <IconButton onClick={() => setShowSettings(true)} size="small" sx={{ color: "text.disabled", "&:hover": { color: "primary.light" } }}>
-              <SettingsIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Stack>
         </Container>
       )}
 
