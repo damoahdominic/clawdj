@@ -1308,27 +1308,6 @@ function RadioView(props: RadioViewProps) {
               placeholder={`Try: ${typedPlaceholder}\u258F`}
               variant="outlined"
               InputProps={{
-                startAdornment: (
-                  <Box sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 28, height: 28,
-                    mr: 1,
-                    borderRadius: "50%",
-                    background: `radial-gradient(circle at 30% 30%, ${alpha(theme.palette.primary.light, 0.35)}, ${alpha(theme.palette.primary.main, 0.15)} 60%, transparent)`,
-                    animation: "sparkle-float 2.4s ease-in-out infinite",
-                    "@keyframes sparkle-float": {
-                      "0%,100%": { transform: "scale(1) rotate(0deg)", filter: `drop-shadow(0 0 4px ${alpha(theme.palette.primary.light, 0.5)})` },
-                      "50%": { transform: "scale(1.08) rotate(8deg)", filter: `drop-shadow(0 0 10px ${alpha(theme.palette.primary.light, 0.85)})` },
-                    },
-                  }}>
-                    <AutoAwesomeIcon sx={{
-                      fontSize: 18,
-                      color: theme.palette.primary.light,
-                    }} />
-                  </Box>
-                ),
                 endAdornment: (
                   <IconButton
                     onClick={() => loadPlaylist()}
