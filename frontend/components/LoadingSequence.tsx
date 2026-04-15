@@ -63,17 +63,8 @@ export function LoadingSequence({ query }: { query?: string }) {
         width: "100%",
         maxWidth: 480,
         p: { xs: 3, sm: 4 },
-        borderRadius: 3,
-        background: `linear-gradient(180deg, ${alpha("#141414", 0.92)}, ${alpha("#050505", 0.96)})`,
-        border: `1px solid ${alpha(red, 0.25)}`,
-        boxShadow: [
-          `0 24px 64px ${alpha("#000", 0.7)}`,
-          `0 0 0 1px ${alpha("#000", 0.4)}`,
-          `inset 0 1px 0 ${alpha("#fff", 0.04)}`,
-          `0 0 40px ${alpha(red, 0.15)}`,
-        ].join(", "),
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
+        background: "transparent",
+        filter: `drop-shadow(0 0 24px ${alpha(red, 0.15)})`,
       }}>
         <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mb: 0.5 }}>
           <Box sx={{
