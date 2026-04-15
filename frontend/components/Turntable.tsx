@@ -412,11 +412,11 @@ export function Turntable({
           {/* Radial index marker — sits ON TOP of the album art so the spin
                is always visible. Thick bar + glow, coloured by deck. */}
           <rect
-            x="98" y="7" width="4" height="92"
+            x="96" y="7" width="8" height="92"
             fill={`url(#${vinylId}-marker)`}
-            rx="2"
+            rx="4"
             opacity="0.95"
-            style={{ filter: `drop-shadow(0 0 4px ${color})` }}
+            style={{ filter: `drop-shadow(0 0 5px ${color})` }}
           />
           {/* Spindle hub — modern chrome feel, drawn after the marker so the
                marker tapers cleanly into the hub. */}
