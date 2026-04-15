@@ -151,7 +151,7 @@ export function GameboyFrame({
   children,
   isPlaying = false,
   bpm = 120,
-  lcdAspectRatio = 3 / 2,
+  lcdAspectRatio = 3 / 1,
   lcdWidthFrac = 0.5,
 }: GameboyFrameProps) {
   const theme = useTheme();
