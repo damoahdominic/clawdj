@@ -625,6 +625,10 @@ export function DeckLayout({
   const engineARef = useRef<AudioEngineApi | null>(null);
   const engineBRef = useRef<AudioEngineApi | null>(null);
 
+  // Label of the effect the pointer is currently over, surfaced in a fixed
+  // pill at the bottom centre of the SFX rack.
+  const [hoveredEffect, setHoveredEffect] = useState<string | null>(null);
+
   // Mutable mirrors of tempo/pitch so the SYNC effect on one deck can read
   // the other's current values without triggering re-renders on both.
   const ctrlARef = useRef<{ tempo: number; pitch: number } | null>(null);
@@ -849,10 +853,13 @@ export function DeckLayout({
   const effectsGrid = effects.length > 0 && onTriggerEffect ? (
     <Box sx={{ mt: 1.5 }}>
       <Box
+        onMouseLeave={() => setHoveredEffect(null)}
         sx={{
+          position: "relative",
           overflowX: "auto",
           overflowY: "hidden",
           p: 1.25,
+          pb: 3.75,
           borderRadius: "4px",
           background: [
             `repeating-linear-gradient(90deg, ${alpha("#fff", 0.015)} 0px, transparent 1px, transparent 3px)`,
@@ -887,15 +894,12 @@ export function DeckLayout({
             const isActive = playingEffects?.has(eff.name) ?? false;
             const c = rainbowColors[idx % rainbowColors.length];
             return (
-              <Tooltip key={eff.name} title={eff.label} placement="top" arrow
-                slotProps={{
-                  tooltip: { sx: { bgcolor: alpha("#1a1a1a", 0.95), color: "#fff", fontSize: 10, fontWeight: 700, letterSpacing: 1, border: `1px solid ${alpha(c, 0.4)}`, backdropFilter: "blur(8px)" } },
-                  arrow: { sx: { color: alpha("#1a1a1a", 0.95) } },
-                }}
-              >
-                <Box
-                  role="button"
-                  onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
+              <Box
+                key={eff.name}
+                role="button"
+                onMouseEnter={() => setHoveredEffect(eff.label)}
+                onFocus={() => setHoveredEffect(eff.label)}
+                onClick={(e) => { e.stopPropagation(); onTriggerEffect(eff.name); }}
                   sx={{
                     cursor: "pointer",
                     userSelect: "none",
@@ -1001,10 +1005,46 @@ export function DeckLayout({
                       },
                     }),
                   }} />
-                </Box>
-              </Tooltip>
+              </Box>
             );
           })}
+        </Box>
+
+        {/* Fixed hover label — bottom centre of the rack */}
+        <Box
+          sx={{
+            position: "absolute",
+            bottom: 6,
+            left: "50%",
+            transform: `translateX(-50%) translateY(${hoveredEffect ? 0 : 4}px)`,
+            opacity: hoveredEffect ? 1 : 0,
+            pointerEvents: "none",
+            px: 1.25,
+            py: 0.35,
+            borderRadius: 999,
+            bgcolor: alpha("#0a0a0a", 0.92),
+            border: `1px solid ${alpha(red, 0.45)}`,
+            boxShadow: `0 2px 8px ${alpha("#000", 0.6)}, 0 0 10px ${alpha(red, 0.25)}`,
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+            transition: "opacity 0.12s ease, transform 0.12s ease",
+            zIndex: 3,
+            whiteSpace: "nowrap",
+            maxWidth: "90%",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          <Typography sx={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: 1.2,
+            color: "#fff",
+            textTransform: "uppercase",
+            lineHeight: 1,
+          }}>
+            {hoveredEffect ?? "\u00A0"}
+          </Typography>
         </Box>
       </Box>
     </Box>
