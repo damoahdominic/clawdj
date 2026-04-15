@@ -11,6 +11,7 @@ import { Turntable } from "./Turntable";
 import { Crossfader } from "./Crossfader";
 import { Knob } from "./Knob";
 import { WaveformLane } from "./WaveformLane";
+import { AudioLevels } from "./AudioLevels";
 import { darkBrushedPanel, darkBrushedSub, machinedSeam, machinedButton } from "./metal";
 import type { AudioEngineApi } from "../hooks/useAudioEngine";
 import type { EffectDef } from "./EffectsPanel";
@@ -1206,6 +1207,9 @@ export function DeckLayout({
           </Typography>
         </Box>
       </Box>
+
+      {/* Audio levels visualizer — beneath the SFX pad */}
+      <AudioLevels engineARef={engineARef} engineBRef={engineBRef} />
     </Box>
   ) : null;
 

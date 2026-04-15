@@ -1442,54 +1442,6 @@ function RadioView(props: RadioViewProps) {
             </Stack>
 
             <Stack direction="row" alignItems="center" spacing={1} sx={{ flex: 1, justifyContent: "flex-end" }}>
-              <TextField
-                value={vibeQuery}
-                onChange={(e) => setVibeQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
-                placeholder={`Try: ${typedPlaceholder}\u258F`}
-                variant="outlined"
-                size="small"
-                sx={{
-                  width: { xs: 160, sm: 260 },
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: alpha("#000", 0.6),
-                    backdropFilter: "blur(6px)",
-                    borderRadius: 999,
-                    pl: 0.75, pr: 0.5,
-                    "& fieldset": { borderColor: alpha(red, 0.3) },
-                    "&:hover fieldset": { borderColor: alpha(red, 0.5) },
-                    "&.Mui-focused fieldset": { borderColor: red },
-                  },
-                  "& .MuiOutlinedInput-input": {
-                    py: 0.75, px: 1,
-                    fontSize: 12,
-                    "&::placeholder": {
-                      color: alpha("#fff", 0.45),
-                      opacity: 1,
-                      fontStyle: "italic",
-                    },
-                  },
-                }}
-                InputProps={{
-                  endAdornment: (
-                    <IconButton
-                      onClick={() => loadPlaylist()}
-                      disabled={loading || !vibeQuery.trim()}
-                      size="small"
-                      sx={{
-                        width: 26, height: 26,
-                        borderRadius: 999,
-                        background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                        color: "#fff",
-                        "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
-                        "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
-                      }}
-                    >
-                      {loading ? <CircularProgress size={14} thickness={5} sx={{ color: "#fff" }} /> : <SearchIcon sx={{ fontSize: 14 }} />}
-                    </IconButton>
-                  ),
-                }}
-              />
               <IconButton
                 onClick={() => setShowSettings(!showSettings)}
                 title="Settings"
@@ -1684,6 +1636,57 @@ function RadioView(props: RadioViewProps) {
                         <Typography sx={{ fontSize: 11, color: redLight, lineHeight: 1 }}>∞</Typography>
                       )}
                     </Stack>
+
+                    {/* Search — now lives inside the wing */}
+                    <Box sx={{ px: 1, py: 0.75, borderBottom: `1px solid ${alpha("#fff", 0.05)}`, flexShrink: 0 }}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        value={vibeQuery}
+                        onChange={(e) => setVibeQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && loadPlaylist()}
+                        placeholder={`Try: ${typedPlaceholder}\u258F`}
+                        variant="outlined"
+                        InputProps={{
+                          endAdornment: (
+                            <IconButton
+                              onClick={() => loadPlaylist()}
+                              disabled={loading || !vibeQuery.trim()}
+                              size="small"
+                              sx={{
+                                width: 22, height: 22,
+                                borderRadius: 999,
+                                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                                color: "#fff",
+                                "&:hover": { background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.primary.main})` },
+                                "&.Mui-disabled": { opacity: 0.3, color: "#fff" },
+                              }}
+                            >
+                              {loading ? <CircularProgress size={12} thickness={5} sx={{ color: "#fff" }} /> : <SearchIcon sx={{ fontSize: 12 }} />}
+                            </IconButton>
+                          ),
+                        }}
+                        sx={{
+                          "& .MuiOutlinedInput-root": {
+                            bgcolor: alpha("#000", 0.55),
+                            borderRadius: 999,
+                            pl: 0.75, pr: 0.5,
+                            "& fieldset": { borderColor: alpha(red, 0.3) },
+                            "&:hover fieldset": { borderColor: alpha(red, 0.5) },
+                            "&.Mui-focused fieldset": { borderColor: red },
+                          },
+                          "& .MuiOutlinedInput-input": {
+                            py: 0.5, px: 0.75,
+                            fontSize: 10,
+                            "&::placeholder": {
+                              color: alpha("#fff", 0.45),
+                              opacity: 1,
+                              fontStyle: "italic",
+                            },
+                          },
+                        }}
+                      />
+                    </Box>
 
                     {/* Scrollable track list */}
                     <Box

@@ -44,6 +44,9 @@ export interface AudioEngineApi {
   resume: () => Promise<void>;
   dispose: () => void;
   getCurrentTime: () => number;
+  /** AnalyserNode tapping the main output — returns null until the Web Audio
+   *  chain has been engaged (happens automatically on loadTrack). */
+  getAnalyser: () => AnalyserNode | null;
   isPlayingRef: React.MutableRefObject<boolean>;
   durationRef: React.MutableRefObject<number>;
   audioElRef: React.MutableRefObject<HTMLAudioElement | null>;
@@ -58,6 +61,7 @@ export function useAudioEngine(): AudioEngineApi {
   const midFilterRef = useRef<BiquadFilterNode | null>(null);
   const highFilterRef = useRef<BiquadFilterNode | null>(null);
   const mainGainRef = useRef<GainNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
   const forwardBufRef = useRef<AudioBuffer | null>(null);
   const reversedBufRef = useRef<AudioBuffer | null>(null);
@@ -138,11 +142,13 @@ export function useAudioEngine(): AudioEngineApi {
     try { midFilterRef.current?.disconnect(); } catch { /* noop */ }
     try { highFilterRef.current?.disconnect(); } catch { /* noop */ }
     try { mainGainRef.current?.disconnect(); } catch { /* noop */ }
+    try { analyserRef.current?.disconnect(); } catch { /* noop */ }
     mediaSourceRef.current = null;
     lowFilterRef.current = null;
     midFilterRef.current = null;
     highFilterRef.current = null;
     mainGainRef.current = null;
+    analyserRef.current = null;
   }, []);
 
   // Build the EQ chain for a fresh audio element. Returns true on success.
@@ -170,17 +176,25 @@ export function useAudioEngine(): AudioEngineApi {
       const mainGain = ctx.createGain();
       mainGain.gain.value = volumeRef.current;
 
+      // Analyser tap for the visualizer. Fed post-gain so muted decks
+      // contribute ~zero and the bars respect the crossfader.
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.75;
+
       src.connect(low);
       low.connect(mid);
       mid.connect(high);
       high.connect(mainGain);
-      mainGain.connect(ctx.destination);
+      mainGain.connect(analyser);
+      analyser.connect(ctx.destination);
 
       mediaSourceRef.current = src;
       lowFilterRef.current = low;
       midFilterRef.current = mid;
       highFilterRef.current = high;
       mainGainRef.current = mainGain;
+      analyserRef.current = analyser;
 
       // Element's own volume must be 1 when routed through Web Audio —
       // mainGain controls effective output level from here on.
@@ -240,8 +254,10 @@ export function useAudioEngine(): AudioEngineApi {
       setTimeout(resolve, 5000);
     });
 
-    // Only route through Web Audio if the user has actually engaged EQ. The
-    // raw <audio> element plays more reliably in background tabs everywhere.
+    // Eagerly engage the Web Audio chain so the visualizer analyser always
+    // has live data. Fall back to raw <audio> if the browser blocks media
+    // element capture for any reason.
+    eqEngagedRef.current = true;
     if (eqEngagedRef.current) {
       const chainOk = setupChain(audioEl);
       if (!chainOk) audioEl.volume = volumeRef.current;
@@ -694,6 +710,7 @@ export function useAudioEngine(): AudioEngineApi {
     resume,
     dispose,
     getCurrentTime,
+    getAnalyser: () => analyserRef.current,
     isPlayingRef,
     durationRef,
     audioElRef,
