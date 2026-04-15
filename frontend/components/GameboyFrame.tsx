@@ -1,8 +1,9 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { Box, Stack, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
+import type { AudioEngineApi } from "../hooks/useAudioEngine";
 
 interface GameboyFrameProps {
   /** Rendered inside the LCD screen area (e.g. the lobster scene). */
@@ -17,6 +18,129 @@ interface GameboyFrameProps {
   lcdAspectRatio?: number;
   /** Fraction of the frame width the LCD should occupy (0–1). */
   lcdWidthFrac?: number;
+  /** Engines whose output feeds the corner master meter. */
+  engineARef?: React.MutableRefObject<AudioEngineApi | null>;
+  engineBRef?: React.MutableRefObject<AudioEngineApi | null>;
+}
+
+/** Horizontal LED strip that shows the combined master level, green→red. */
+function MasterMeter({
+  engineARef,
+  engineBRef,
+}: {
+  engineARef?: React.MutableRefObject<AudioEngineApi | null>;
+  engineBRef?: React.MutableRefObject<AudioEngineApi | null>;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const peakRef = useRef(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let raf = 0;
+    let dataA: Uint8Array<ArrayBuffer> | null = null;
+    let dataB: Uint8Array<ArrayBuffer> | null = null;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const r = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.floor(r.width * dpr));
+      canvas.height = Math.max(1, Math.floor(r.height * dpr));
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
+    const sampleAnalyser = (a: AnalyserNode | null, buf: Uint8Array<ArrayBuffer> | null) => {
+      if (!a) return { level: 0, buf };
+      const bins = a.frequencyBinCount;
+      if (!buf || buf.length !== bins) buf = new Uint8Array(new ArrayBuffer(bins));
+      a.getByteFrequencyData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i];
+      return { level: (sum / buf.length) / 255, buf };
+    };
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const ra = sampleAnalyser(engineARef?.current?.getAnalyser?.() ?? null, dataA);
+      const rb = sampleAnalyser(engineBRef?.current?.getAnalyser?.() ?? null, dataB);
+      dataA = ra.buf; dataB = rb.buf;
+      const level = Math.max(ra.level, rb.level);
+      peakRef.current = Math.max(level, peakRef.current * 0.9);
+      const p = Math.min(1, peakRef.current * 1.15);
+
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.width, h = canvas.height;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const cssW = w / dpr, cssH = h / dpr;
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const segs = 14;
+      const gap = 1.5;
+      const segW = (cssW - gap * (segs + 1)) / segs;
+      for (let i = 0; i < segs; i++) {
+        const t = i / (segs - 1);
+        const lit = p > t * 0.95 + 0.01;
+        const x = gap + i * (segW + gap);
+        let c: string;
+        if (t > 0.85) c = "#ff3838";
+        else if (t > 0.65) c = "#ffb020";
+        else c = "#34d058";
+        ctx.fillStyle = lit ? c : `rgba(${t > 0.85 ? "70,20,20" : t > 0.65 ? "70,50,15" : "20,55,35"},0.55)`;
+        ctx.fillRect(x, gap, segW, cssH - gap * 2);
+      }
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <Box sx={{
+      position: "absolute",
+      bottom: 8,
+      right: 8,
+      zIndex: 4,
+      display: "flex",
+      alignItems: "center",
+      gap: 0.5,
+      px: 0.75,
+      py: 0.5,
+      borderRadius: 0.75,
+      bgcolor: alpha("#000", 0.55),
+      backdropFilter: "blur(4px)",
+      WebkitBackdropFilter: "blur(4px)",
+      border: `1px solid ${alpha("#fff", 0.12)}`,
+      boxShadow: `inset 0 1px 2px ${alpha("#000", 0.8)}`,
+      pointerEvents: "none",
+    }}>
+      <Typography sx={{
+        fontFamily: "monospace",
+        fontSize: 8,
+        fontWeight: 800,
+        letterSpacing: 1.5,
+        color: alpha("#fff", 0.7),
+        textTransform: "uppercase",
+      }}>
+        Master
+      </Typography>
+      <Box sx={{
+        width: 90,
+        height: 10,
+        borderRadius: 0.5,
+        bgcolor: "#050506",
+        border: `1px solid ${alpha("#000", 0.7)}`,
+        boxShadow: `inset 0 1px 2px ${alpha("#000", 0.8)}`,
+        overflow: "hidden",
+      }}>
+        <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
+      </Box>
+    </Box>
+  );
 }
 
 /** Circular speaker that pulses in time with the beat. */
@@ -153,6 +277,8 @@ export function GameboyFrame({
   bpm = 120,
   lcdAspectRatio = 3 / 1,
   lcdWidthFrac = 0.5,
+  engineARef,
+  engineBRef,
 }: GameboyFrameProps) {
   const theme = useTheme();
   const red = theme.palette.primary.main;
@@ -286,6 +412,9 @@ export function GameboyFrame({
             background: `radial-gradient(ellipse at center, transparent 55%, ${alpha("#000", 0.55)} 100%)`,
             pointerEvents: "none",
           }} />
+
+          {/* Master level meter — bottom-right corner of the LCD */}
+          <MasterMeter engineARef={engineARef} engineBRef={engineBRef} />
         </Box>
 
         {/* Under-screen micro label */}
