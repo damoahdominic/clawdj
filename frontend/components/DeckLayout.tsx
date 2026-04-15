@@ -823,18 +823,50 @@ export function DeckLayout({
         <SkipPreviousIcon sx={{ fontSize: skipIconSize }} />
       </IconButton>
 
-      {/* Digital display */}
+      {/* Digital display — dot-matrix LED panel */}
       <Box
         sx={{
+          position: "relative",
           minWidth: 80,
           my: "10px",
           px: 1.5,
           py: 0.75,
           borderRadius: "4px",
-          bgcolor: alpha("#000", 0.85),
-          border: `1px solid ${alpha("#333", 0.5)}`,
-          boxShadow: `inset 0 2px 6px ${alpha("#000", 0.7)}, inset 0 0 0 1px ${alpha("#000", 0.5)}`,
+          border: `1px solid ${alpha("#333", 0.6)}`,
+          boxShadow: `inset 0 2px 6px ${alpha("#000", 0.75)}, inset 0 0 0 1px ${alpha("#000", 0.6)}, 0 0 0 1px ${alpha(redLight, 0.06)}`,
           textAlign: "center",
+          overflow: "hidden",
+          // Near-black LCD background with a slight red cast where the dots
+          // will sit unlit.
+          background: `
+            radial-gradient(circle at 50% 50%, ${alpha("#140404", 0.98)}, ${alpha("#050000", 0.98)} 80%)
+          `,
+          // Dot-matrix grid drawn as a pseudo-element so the text sits cleanly
+          // on top and the lit characters can cast glow through the holes.
+          "&::before": {
+            content: '""',
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `
+              radial-gradient(circle, ${alpha(redLight, 0.18)} 0.6px, transparent 1.1px),
+              radial-gradient(circle, ${alpha("#000", 0.55)} 0.4px, transparent 0.9px)
+            `,
+            backgroundSize: "3px 3px, 3px 3px",
+            backgroundPosition: "0 0, 0.5px 0.5px",
+            pointerEvents: "none",
+            mixBlendMode: "screen",
+            opacity: 0.9,
+          },
+          // Fine vertical scanlines for CRT / dot-matrix feel.
+          "&::after": {
+            content: '""',
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `repeating-linear-gradient(0deg, transparent 0 2px, ${alpha("#000", 0.3)} 2px 3px)`,
+            pointerEvents: "none",
+            mixBlendMode: "multiply",
+          },
+          "& > *": { position: "relative", zIndex: 2 },
         }}
       >
         <Typography
@@ -845,7 +877,7 @@ export function DeckLayout({
             color: redLight,
             lineHeight: 1.2,
             letterSpacing: 1,
-            textShadow: `0 0 8px ${alpha(redLight, 0.5)}`,
+            textShadow: `0 0 6px ${alpha(redLight, 0.85)}, 0 0 12px ${alpha(redLight, 0.45)}`,
           }}
         >
           {currentIndex + 1} / {playlistLength}
