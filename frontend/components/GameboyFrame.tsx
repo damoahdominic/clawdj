@@ -8,6 +8,9 @@ import type { AudioEngineApi } from "../hooks/useAudioEngine";
 interface GameboyFrameProps {
   /** Rendered inside the LCD screen area (e.g. the lobster scene). */
   lcdContent?: ReactNode;
+  /** Overlay rendered on top of the LCD effects (tint, scanlines, vignette)
+   *  — use for readable info like the Now Playing card. */
+  lcdOverlay?: ReactNode;
   /** Rendered below the hinge — the existing deck layout. */
   children: ReactNode;
   /** Drives the LCD power LED pulse. */
@@ -272,6 +275,7 @@ function Speaker({
 
 export function GameboyFrame({
   lcdContent,
+  lcdOverlay,
   children,
   isPlaying = false,
   bpm = 120,
@@ -415,6 +419,10 @@ export function GameboyFrame({
 
           {/* Master level meter — bottom-right corner of the LCD */}
           <MasterMeter engineARef={engineARef} engineBRef={engineBRef} />
+
+          {/* Overlay slot — rendered on top of the LCD effects so text
+               stays legible through the scanlines/tint. */}
+          {lcdOverlay}
         </Box>
 
         {/* Under-screen micro label */}

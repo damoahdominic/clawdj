@@ -31,6 +31,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { DeckLayout, type DeckTrack } from "../../components/DeckLayout";
 import type { EffectDef } from "../../components/EffectsPanel";
+import { NowPlayingLcd } from "../../components/NowPlayingLcd";
 import { workerSetInterval } from "../../lib/workerInterval";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
@@ -1126,7 +1127,14 @@ function RadioView(props: RadioViewProps) {
     togglePlay, skipToTrack, skipPrev, skipNext,
     crossfaderValue, handleCrossfaderChange, currentBpm,
     miniPlaylist, setMiniPlaylist, isDesktop,
+    activeDeck,
   } = props;
+
+  // The card shows whichever deck is currently the "master" of the mix.
+  // During a crossfade the source deck keeps its content visible until the
+  // fader has swapped, so the user sees the label line up with what they
+  // hear.
+  const nowPlayingTrack = activeDeck === "a" ? deckATrack : deckBTrack;
 
   return (
     <Box
@@ -1546,6 +1554,7 @@ function RadioView(props: RadioViewProps) {
                 engineARef={engineARef}
                 engineBRef={engineBRef}
                 lcdContent={<LobsterBackground contained isPlaying={isPlaying} bpm={currentBpm} />}
+                lcdOverlay={<NowPlayingLcd track={nowPlayingTrack} />}
               >
               <DeckLayout
                 deckA={{
