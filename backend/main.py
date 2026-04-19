@@ -534,35 +534,142 @@ DOCKER_PROFILE = "Profile 1"
 DOCKER_DL_DIR = "/tmp/clawdj_dl"
 
 
+def _alphanum(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _fetch_deezer_duration(artist: str, title: str) -> int | None:
+    """Return Deezer's canonical duration (seconds) for the track, or None."""
+    import urllib.parse
+    import urllib.request
+    q = urllib.parse.quote(f"{artist} {title}")
+    url = f"https://api.deezer.com/search?q={q}&limit=5"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "clawdj/0.2"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return None
+    want_a = _alphanum(artist)
+    want_t = _alphanum(title)
+    for item in data.get("data", []):
+        item_a = _alphanum(item.get("artist", {}).get("name", ""))
+        item_t = _alphanum(item.get("title", ""))
+        if want_a and want_a in item_a and want_t and want_t in item_t:
+            return item.get("duration") or None
+    top = (data.get("data") or [None])[0]
+    return top.get("duration") if top else None
+
+
+_BAD_VERSION_TOKENS = (
+    "cover", "karaoke", "instrumental", "reaction", "tutorial",
+    "nightcore", "sped up", "slowed", "8d audio", "extended mix",
+    "lyric video",
+)
+
+
+def _score_yt_candidate(
+    cand: dict, artist: str, title: str, target_duration: int | None
+) -> float:
+    """Score a yt-dlp search candidate. Higher is better; -inf means reject."""
+    vid_title = (cand.get("title") or "").lower()
+    channel = (cand.get("channel") or cand.get("uploader") or "").lower()
+    duration = cand.get("duration")
+    if duration is None:
+        return float("-inf")
+
+    a = _alphanum(artist)
+    if a and a not in _alphanum(vid_title) and a not in _alphanum(channel):
+        return float("-inf")
+
+    title_words = [w for w in re.split(r"\W+", title.lower()) if len(w) > 2]
+    title_hits = sum(1 for w in title_words if w in vid_title)
+    if title_words and title_hits < max(1, (len(title_words) + 1) // 2):
+        return float("-inf")
+
+    score = float(title_hits) * 2.0
+
+    if target_duration:
+        delta = abs(int(duration) - int(target_duration))
+        if delta <= 2:
+            score += 10
+        elif delta <= 5:
+            score += 6
+        elif delta <= 10:
+            score += 2
+        else:
+            # Beyond 10s off — different version (live, remix, loop, edit).
+            return float("-inf")
+
+    if channel.endswith("- topic"):
+        score += 5  # YouTube auto-uploaded official-audio channels
+    if "vevo" in channel:
+        score += 4
+    if "official" in vid_title:
+        score += 1
+
+    asked = title.lower()
+    for bad in _BAD_VERSION_TOKENS:
+        if bad in vid_title and bad not in asked:
+            score -= 3
+
+    return score
+
+
+def _pick_yt_video_id(
+    artist: str, title: str, target_duration: int | None
+) -> str | None:
+    """Run ytsearch10 with --flat-playlist, score candidates, return winner."""
+    query = f"{artist} - {title}"
+    cmd_str = (
+        f'export PATH="/usr/local/bin:$PATH" && '
+        f'{DOCKER_YT_DLP} --cookies-from-browser "chrome:{DOCKER_PROFILE}" '
+        f'--flat-playlist --dump-json --skip-download --no-warnings '
+        f'{shlex.quote(f"ytsearch10:{query}")}'
+    )
+    cmd = ["docker", "exec", "-u", "webuser", DOCKER_CONTAINER, "bash", "-c", cmd_str]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except Exception:
+        return None
+
+    best_id: str | None = None
+    best_score = float("-inf")
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            cand = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        score = _score_yt_candidate(cand, artist, title, target_duration)
+        if score > best_score:
+            best_score = score
+            best_id = cand.get("id")
+    return best_id
+
+
 def _do_download(artist: str, title: str) -> str | None:
-    """Download via yt-dlp running INSIDE the Docker container (where Chrome
-    cookies are live and not exported/rotated). The file is then docker-cp'd
-    to the host's RADIO_MUSIC_DIR."""
-    # Anchor the search on the artist name so YouTube doesn't give us covers,
-    # karaoke, lyric videos from unrelated uploaders, or the wrong song. We
-    # also require the artist name to appear in the video title via yt-dlp's
-    # match-filter; ytsearch5 gives us enough candidates to pick the first
-    # that passes.
-    query = f"{artist} - {title} official audio"
+    """Download via yt-dlp inside the Docker container (Chrome cookies live
+    there). Picks the YouTube candidate whose duration matches Deezer's
+    canonical duration for the track, then docker-cp's the file out."""
+    target_duration = _fetch_deezer_duration(artist, title)
+    video_id = _pick_yt_video_id(artist, title, target_duration)
+    if not video_id:
+        return None
+
     safe = _sanitize_filename(f"{artist} - {title}")
-
-    # Escape any single quotes in the artist so the shell + match-filter
-    # stay well-formed.
-    artist_safe = artist.replace("'", "").replace('"', "")
-
     docker_out = f"{DOCKER_DL_DIR}/{safe}.%(ext)s"
-    # match-filter uses yt-dlp's Python-style expression language. The
-    # ~= operator is a case-insensitive regex search.
-    match_filter = f"title ~= (?i){re.escape(artist_safe)}"
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
     cmd = [
         "docker", "exec", "-u", "webuser", DOCKER_CONTAINER,
         "bash", "-c",
         f'export PATH="/usr/local/bin:$PATH" && '
         f'{DOCKER_YT_DLP} --cookies-from-browser "chrome:{DOCKER_PROFILE}" '
         f'-f bestaudio --extract-audio --audio-format mp3 --audio-quality 192K '
-        f'--no-playlist --match-filter {shlex.quote(match_filter)} '
-        f'--break-match-filters -o "{docker_out}" '
-        f'"ytsearch5:{query}"',
+        f'--no-playlist -o "{docker_out}" '
+        f'{shlex.quote(video_url)}',
     ]
     try:
         subprocess.run(cmd, timeout=180, capture_output=True)
