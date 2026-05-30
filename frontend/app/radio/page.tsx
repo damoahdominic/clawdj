@@ -5,6 +5,7 @@ import * as THREE from "three";
 import {
   Box,
   Button,
+  Chip,
   Container,
   Drawer,
   IconButton,
@@ -1437,6 +1438,24 @@ function RadioView(props: RadioViewProps) {
                 },
               }}
             />
+          </Box>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center", mt: 3, opacity: 0.6 }}>
+            {["chill house", "90s hip hop", "Kendrick Lamar", "jazz vibes", "Afrobeats", "lo-fi", "trap bangers", "R&B slow jams", "reggaeton", "classic rock"].map((s) => (
+              <Chip
+                key={s}
+                label={s}
+                size="small"
+                onClick={() => loadPlaylist(s)}
+                sx={{
+                  fontSize: 11, fontWeight: 600,
+                  bgcolor: alpha(red, 0.1),
+                  border: `1px solid ${alpha(red, 0.2)}`,
+                  color: "text.secondary",
+                  cursor: "pointer",
+                  "&:hover": { bgcolor: alpha(red, 0.25), color: "#fff", borderColor: alpha(red, 0.5) },
+                }}
+              />
+            ))}
           </Box>
         </Container>
       )}
