@@ -1386,9 +1386,7 @@ function RadioView(props: RadioViewProps) {
           >
             ClawDJ Radio
           </Typography>
-          <Typography sx={{ color: "text.secondary", mb: 4, fontSize: { xs: 13, sm: 15 }, textAlign: "center" }}>
-            Two decks, a crossfader, and scratch-enabled turntables
-          </Typography>
+
           <Box sx={{ width: "100%", maxWidth: 500, position: "relative" }}>
             <TextField
               fullWidth

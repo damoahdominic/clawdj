@@ -166,6 +166,16 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ---
 
+## GitHub Repository
+
+- **Repo:** https://github.com/damoahdominic/clawdj
+- **Account:** `damoahdominic`
+- **Remote protocol:** HTTPS (configured in `git remote`)
+- **Auth:** `gh auth login --with-token` using a GitHub PAT stored by the `gh` CLI (`~/.config/gh/hosts.yml`). The token needs `repo` and `workflow` scopes at minimum.
+- **Push:** `git push origin master` — the `gh` CLI credential helper handles authentication automatically once logged in.
+
+---
+
 ## Agent Notes
 
 - API base for agents calling the backend: `https://clawdj.live/api/`
@@ -174,3 +184,4 @@ sudo nginx -t && sudo systemctl reload nginx
 - The backend accepts large file uploads (up to 100 MB per NGINX config).
 - Long-running operations (stem separation, mashup render) use async jobs polled via the REST API — do not set short HTTP timeouts; backend read timeout is 300 s.
 - YouTube cookie refresh is handled by `scripts/refresh-yt-cookies.sh` — run it if yt-dlp downloads start failing.
+- After completing any coding task, always commit the changes and push to `origin master`.
